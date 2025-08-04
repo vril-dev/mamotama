@@ -1,0 +1,31 @@
+services:    
+  coraza:
+    build:
+      context: ./coraza
+      dockerfile: Dockerfile
+      args:
+        APP_URL: ${APP_URL}
+        WAF_LOG_FILE: ${WAF_LOG_FILE}
+        WAF_STRICT_OVERRIDE: ${WAF_STRICT_OVERRIDE}
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  openresty:
+    build:
+      context: ./openresty
+      dockerfile: Dockerfile
+      args:
+        NGX_CORAZA_UPSTREAM: ${NGX_CORAZA_UPSTREAM}
+        BACKEND_RESPONSE_TIMEOUT: ${BACKEND_RESPONSE_TIMEOUT}
+    ports:
+      - "80:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./openresty/waf:/etc/openresty/waf:ro
+    depends_on:
+      - coraza
+    restart: unless-stopped

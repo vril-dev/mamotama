@@ -1,0 +1,19 @@
+FROM golang:1.24-alpine
+
+ARG APP_URL
+ENV APP_URL=${APP_URL}
+ARG WAF_LOG_FILE
+ENV WAF_LOG_FILE=${WAF_LOG_FILE}
+ARG WAF_STRICT_OVERRIDE
+ENV WAF_STRICT_OVERRIDE=${WAF_STRICT_OVERRIDE}
+
+WORKDIR /app
+
+COPY . .
+
+RUN go mod tidy
+RUN go mod download
+
+RUN go build -o server .
+
+CMD ["./server"]

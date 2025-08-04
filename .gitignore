@@ -1,0 +1,36 @@
+# Go build artifacts
+/bin/
+/build/
+/dist/
+*.exe
+*.out
+*.test
+
+# WAF runtime files
+mamotama.conf
+crs-setup.conf
+rules/
+!rules/empty
+
+# Editor/IDE files
+*.swp
+*.swo
+*.bak
+*.tmp
+*.log
+*.DS_Store
+.vscode/
+.idea/
+
+# Dependency management
+vendor/
+go.sum
+go.mod # ← 残してよければコメントアウト
+
+# Env files
+.env
+
+# OS-specific
+Thumbs.db
+ehthumbs.db
+.DS_Store
