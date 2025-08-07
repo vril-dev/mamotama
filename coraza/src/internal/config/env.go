@@ -20,7 +20,7 @@ var (
 func LoadEnv() {
 	_ = godotenv.Load()
 
-	AppURL = os.Getenv("APP_URL")
+	AppURL = os.Getenv("WAF_APP_URL")
 	RulesFile = os.Getenv("WAF_RULES_FILE")
 	BypassFile = os.Getenv("WAF_BYPASS_FILE")
 	LogFile = os.Getenv("WAF_LOG_FILE")

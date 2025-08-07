@@ -14,16 +14,14 @@ var targetURL *url.URL
 var proxy *httputil.ReverseProxy
 
 func ProxyHandler(c *gin.Context) {
-	// --- 初回アクセス時にプロキシを初期化 ---
 	if proxy == nil {
 		targetURL, err := url.Parse(config.AppURL)
 		if err != nil {
-			log.Fatalf("Invalid APP_URL: %v", err)
+			log.Fatalf("Invalid WAF_APP_URL: %v", err)
 		}
 		proxy = httputil.NewSingleHostReverseProxy(targetURL)
 	}
 
-	// --- WAFトランザクション処理 ---
 	tx := waf.WAF.NewTransaction()
 	defer func() {
 		tx.ProcessLogging()

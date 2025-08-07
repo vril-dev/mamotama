@@ -19,6 +19,8 @@
 # Dependency management
 vendor/
 go.sum
+data/rules/*
+!data/rules/empty
 
 # Env files
 .env

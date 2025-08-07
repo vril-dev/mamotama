@@ -34,6 +34,7 @@ func main() {
 
 		admin.GET("/status", handler.StatusHandler)
 		admin.GET("/logs", handler.LogsHandler)
+		admin.GET("/rules", handler.RulesHandler)
 		admin.GET("/bypass", handler.GetBypassHandler)
 		admin.POST("/bypass", handler.SaveBypassHandler)
 	}
