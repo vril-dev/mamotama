@@ -6,12 +6,6 @@
 *.out
 *.test
 
-# WAF runtime files
-mamotama.conf
-crs-setup.conf
-rules/
-!rules/empty
-
 # Editor/IDE files
 *.swp
 *.swo
@@ -25,7 +19,6 @@ rules/
 # Dependency management
 vendor/
 go.sum
-go.mod # ← 残してよければコメントアウト
 
 # Env files
 .env

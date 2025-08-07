@@ -1,4 +1,16 @@
-FROM golang:1.24-alpine
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache git
+
+COPY src .
+RUN go mod tidy
+RUN go mod download
+
+RUN go build -o server /app/cmd/server
+
+FROM alpine:3.19
 
 ARG APP_URL
 ENV APP_URL=${APP_URL}
@@ -6,14 +18,17 @@ ARG WAF_LOG_FILE
 ENV WAF_LOG_FILE=${WAF_LOG_FILE}
 ARG WAF_STRICT_OVERRIDE
 ENV WAF_STRICT_OVERRIDE=${WAF_STRICT_OVERRIDE}
+ARG WAF_ADMIN_BASEPATH
+ENV WAF_ADMIN_BASEPATH=${WAF_ADMIN_BASEPATH}
+ARG WAF_BYPASS_FILE
+ENV WAF_BYPASS_FILE=${WAF_BYPASS_FILE}
+ARG WAF_RULES_FILE
+ENV WAF_RULES_FILE=${WAF_RULES_FILE}
 
 WORKDIR /app
 
-COPY . .
+COPY --from=builder /app/server .
 
-RUN go mod tidy
-RUN go mod download
+EXPOSE 9090
 
-RUN go build -o server .
-
-CMD ["./server"]
+CMD ["/app/server"]

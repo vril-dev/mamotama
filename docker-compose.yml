@@ -7,12 +7,17 @@ services:
         APP_URL: ${APP_URL}
         WAF_LOG_FILE: ${WAF_LOG_FILE}
         WAF_STRICT_OVERRIDE: ${WAF_STRICT_OVERRIDE}
+        WAF_ADMIN_BASEPATH: ${WAF_ADMIN_BASEPATH}
+        WAF_BYPASS_FILE: ${WAF_BYPASS_FILE}
+        WAF_RULES_FILE: ${WAF_RULES_FILE}
+    volumes:
+      - ./data/rules:/app/rules
+      - ./data/conf:/app/conf
     ports:
       - "9090:9090"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
-
   openresty:
     build:
       context: ./openresty
@@ -29,3 +34,14 @@ services:
     depends_on:
       - coraza
     restart: unless-stopped
+  web:
+    image: node:22
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    volumes:
+      - ./web/mamotama-admin:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - API_BASE=${API_BASE}
