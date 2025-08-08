@@ -19,7 +19,7 @@ func GetBypassHandler(c *gin.Context) {
 
 func SaveBypassHandler(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
-	if err != nil || len(body) == 0 {
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}

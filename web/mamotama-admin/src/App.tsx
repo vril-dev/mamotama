@@ -4,6 +4,7 @@ import Status from './pages/Status';
 import Logs from './pages/Logs';
 import Rules from './pages/Rules';
 import Settings from './pages/Settings';
+import BypassEditor from './pages/BypassEditor';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
           <Route path="status" element={<Status />} />
           <Route path="logs" element={<Logs />} />
           <Route path="rules" element={<Rules />} />
+          <Route path="bypass" element={<BypassEditor />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
