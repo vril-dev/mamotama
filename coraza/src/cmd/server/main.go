@@ -9,6 +9,8 @@ import (
 	"mamotama/internal/config"
 	"mamotama/internal/handler"
 	"mamotama/internal/waf"
+
+	"mamotama/internal/middleware"
 )
 
 func main() {
@@ -18,29 +20,37 @@ func main() {
 	log.Println("[INFO] WAF upstream target:", config.AppURL)
 
 	r := gin.Default()
-	r.Use(cors.Default())
 
-	admin := r.Group(config.AdminBasePath)
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{"GET", "POST", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "X-API-Key"},
+	}))
+
+	api := r.Group(config.APIBasePath, middleware.APIKeyAuth())
 	{
-		admin.GET("/", func(c *gin.Context) {
+		api.GET("/", func(c *gin.Context) {
 			c.JSON(200, gin.H{
 				"message": "mamotama-admin API",
 				"endpoints": []string{
-					config.AdminBasePath + "/status",
-					config.AdminBasePath + "/logs",
+					config.APIBasePath + "/status",
+					config.APIBasePath + "/logs",
+					config.APIBasePath + "/rules",
+					config.APIBasePath + "/bypass",
 				},
 			})
 		})
 
-		admin.GET("/status", handler.StatusHandler)
-		admin.GET("/logs", handler.LogsHandler)
-		admin.GET("/rules", handler.RulesHandler)
-		admin.GET("/bypass", handler.GetBypassHandler)
-		admin.POST("/bypass", handler.SaveBypassHandler)
+		api.GET("/status", handler.StatusHandler)
+		api.GET("/logs", handler.LogsHandler)
+		api.GET("/rules", handler.RulesHandler)
+		api.GET("/bypass", handler.GetBypassHandler)
+		api.POST("/bypass", handler.SaveBypassHandler)
 	}
 
 	r.NoRoute(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, config.AdminBasePath) {
+		p := c.Request.URL.Path
+		if strings.HasPrefix(p, config.APIBasePath) {
 			c.AbortWithStatus(404)
 			return
 		}

@@ -39,7 +39,6 @@ cp plugins/*.conf ../coraza/rules/conf/.
 | `NGX_CORAZA_UPSTREAM` | nginx用：Corazaの接続先を `server host:port;` 形式で指定（複数可） | `server coraza:9090;` |
 | `NGX_BACKEND_RESPONSE_TIMEOUT` | nginx用：Corazaからの応答タイムアウト時間 | `60s` |
 | `VITE_APP_BASE_PATH` | Reactダッシュボードのベースパス（例: `/mamotama-admin`） | `/mamotama-admin` |
-| `VITE_API_BASE_PATH` | WAF APIのベースパス（例: `/mamotama-api`） | `/mamotama-api` |
 
 ## 管理ダッシュボード
 
@@ -69,10 +68,8 @@ cp plugins/*.conf ../coraza/rules/conf/.
 
 ```bash
 docker compose build coraza openresty
+docker compose up web
 docker compose up -d coraza openresty
-docker compose run --rm web npm install
-docker compose run --rm web npm run dev
-# or docker ... up web
 ```
 
 環境変数 `.env` に `VITE_APP_BASE_PATH` および `VITE_API_BASE_PATH` を定義することで、ルートパスを変更できます。

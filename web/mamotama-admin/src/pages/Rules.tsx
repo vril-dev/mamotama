@@ -1,22 +1,18 @@
 import { useEffect, useState } from 'react';
+import { apiGetJson } from "@/lib/api";
 
 type RuleMap = Record<string, string>;
 
 export default function Rules() {
     const [rules, setRules] = useState<RuleMap | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const apiBase = import.meta.env.VITE_API_BASE_PATH;
 
     useEffect(() => {
-        fetch(`${apiBase}/rules`)
-            .then(async (res) => {
-                const json = await res.json();
-                if (! res.ok) {
-                    throw new Error(json.error || `HTTP ${res.status}`);
-                }
-                return json;
+        apiGetJson("/rules")
+            .then((data) => {
+                const map = (data as any)?.rules ?? (data as RuleMap);
+                setRules(map);
             })
-            .then((data) => setRules(data.rules))
             .catch((err) => setError(err.message));
     }, []);
 
