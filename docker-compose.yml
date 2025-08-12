@@ -1,0 +1,51 @@
+services:    
+  coraza:
+    build:
+      context: ./coraza
+      dockerfile: Dockerfile
+      args:
+        WAF_APP_URL: ${WAF_APP_URL}
+        WAF_LOG_FILE: ${WAF_LOG_FILE}
+        WAF_STRICT_OVERRIDE: ${WAF_STRICT_OVERRIDE}
+        WAF_ADMIN_BASEPATH: ${WAF_ADMIN_BASEPATH}
+        WAF_BYPASS_FILE: ${WAF_BYPASS_FILE}
+        WAF_RULES_FILE: ${WAF_RULES_FILE}
+    volumes:
+      - ./data/rules:/app/rules
+      - ./data/conf:/app/conf
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+  openresty:
+    build:
+      context: ./openresty
+      dockerfile: Dockerfile
+      args:
+        NGX_CORAZA_UPSTREAM: ${NGX_CORAZA_UPSTREAM}
+        NGX_BACKEND_RESPONSE_TIMEOUT: ${NGX_BACKEND_RESPONSE_TIMEOUT}
+        NGX_CORAZA_ADMIN_URL: ${NGX_CORAZA_ADMIN_URL}
+    ports:
+      - "80:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./openresty/waf:/etc/openresty/waf:ro
+    depends_on:
+      - coraza
+    restart: unless-stopped
+  web:
+    image: node:22
+    user: "1000"
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    volumes:
+      - ./web/mamotama-admin:/app
+      - ./web/mamotama-admin/node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_CORAZA_API_BASE=${VITE_CORAZA_API_BASE}
+      - VITE_APP_BASE_PATH=${VITE_APP_BASE_PATH}
+      - VITE_API_BASE_PATH=${VITE_API_BASE_PATH}
