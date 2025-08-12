@@ -17,7 +17,7 @@ func StatusHandler(c *gin.Context) {
 		"rules_file":  config.RulesFile,
 		"log_file":    config.LogFile,
 		"strict_mode": config.StrictOverride,
-		"admin_base":  config.AdminBasePath,
+		"admin_base":  config.APIBasePath,
 	})
 }
 

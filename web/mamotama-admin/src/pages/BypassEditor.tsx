@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiGetText, apiPostText } from "@/lib/api";
 
 export default function BypassEditor() {
     const [text, setText] = useState("");
@@ -6,16 +7,9 @@ export default function BypassEditor() {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState(false);
-    const apiBase = import.meta.env.VITE_API_BASE_PATH;
 
     useEffect(() => {
-        fetch(`${apiBase}/bypass`)
-            .then((res) => {
-                if (! res.ok) {
-                    throw new Error("Failed to fetch bypass config");
-                }
-                return res.text();
-            })
+        apiGetText("/bypass")
             .then(setText)
             .catch((err) => setError(err.message))
             .finally(() => setLoading(false));
@@ -27,15 +21,7 @@ export default function BypassEditor() {
         setSuccess(false);
 
         try {
-            const res = await fetch(`${apiBase}/bypass`, {
-                method: "POST",
-                headers: { "Content-Type": "text/plain" },
-                body: text,
-            });
-
-            if (! res.ok) {
-                throw new Error("Failed to save bypass config");
-            }
+            await apiPostText("/bypass", text);
             setSuccess(true);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error");
