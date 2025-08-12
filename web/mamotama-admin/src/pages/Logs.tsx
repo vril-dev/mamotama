@@ -1,19 +1,12 @@
 import { useEffect, useState } from 'react';
+import { apiGetJson } from "@/lib/api";
 
 export default function Logs() {
     const [logs, setLogs] = useState<any[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const apiBase = import.meta.env.VITE_API_BASE_PATH;
 
     useEffect(() => {
-        fetch(`${apiBase}/logs`)
-            .then(async (res) => {
-                const json = await res.json();
-                if (! res.ok) {
-                    throw new Error(json.error || `HTTP ${res.status}`);
-                }
-                return json;
-            })
+        apiGetJson("/logs")
             .then(setLogs)
             .catch((err) => setError(err.message));
     }, []);

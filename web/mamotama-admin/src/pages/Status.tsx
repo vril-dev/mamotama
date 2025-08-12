@@ -1,18 +1,14 @@
 import { useEffect, useState } from 'react';
+import { apiGetJson } from "@/lib/api";
 
 export default function State() {
     const [data, setData] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        fetch(`${import.meta.env.VITE_API_BASE_PATH}/status`)
-            .then((res) => {
-                if (res.ok) {
-                    return res.json();
-                }
-            })
+        apiGetJson("/status")
             .then(setData)
-            .catch((err) => setError(err.message));
+            .catch((err) => setError(err.mesasge));
     }, []);
 
     if (error) {
