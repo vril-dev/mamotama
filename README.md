@@ -136,23 +136,55 @@ mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して
 * `extraRuleFile` を指定した行が優先されます
 * コメント行（`#`で始まる）は無視されます
 
-## キャッシュ制御について
+## キャッシュ機能（0.4.1以降）
 
-mamotama自体にはHTTPキャッシュ機能は搭載されていませんが、NginxやCloudflareなどの前段CDN/Reverse Proxyと併用することでキャッシュ制御が可能です。
+mamotama 0.4.1 から、キャッシュ対象のパスやTTLを動的に設定できる機能を追加しました。
 
-推奨構成
+### 設定ファイル
+キャッシュ設定は `/data/conf/cache.conf` に記述します。  
+設定変更はホットリロードに対応しており、ファイル保存後すぐに反映されます。
 
-* 静的ファイルやGET APIは `Cache-Control` や `Expires` をNginxで設定
-* mamotama（Coraza）は主にWAF機能として特化運用
+#### 記述例
 
-例
+```bash
+# 静的アセット（CSS/JS/画像）を10分キャッシュ
+ALLOW prefix=/_next/static/chunks/ methods=GET,HEAD ttl=600 vary=Accept-Encoding
 
-```nginx
-location ~* \.(js|css|png|jpg)$ {
-    expires 1d;
-    add_header Cache-Control "public";
-}
+# 特定HTMLページ群を5分キャッシュ（正規表現）
+ALLOW regex=^/about/.*.html$ methods=GET ttl=300
+
+# API全域禁止（安全側）
+DENY prefix=/mamotama-api/
+
+# 認証ユーザーのプロフィールはキャッシュ禁止（正規表現）
+DENY regex=^/users/[0-9]+/profile
+
+# その他はデフォルトでキャッシュ禁止
 ```
+
+- ALLOW: キャッシュ許可（TTLは秒単位、Varyは任意）
+- DENY: キャッシュ対象外
+- メソッドは `GET` または `HEAD` を推奨（POST等はキャッシュされません）
+
+フィールド説明
+- prefix: 指定パスで始まる場合にマッチ
+- regex: 正規表現でマッチ（`^`や`$`を使って指定可能）
+- methods: 対象HTTPメソッド（カンマ区切り）
+- ttl: キャッシュ時間（秒）
+- vary: nginxに渡すVaryヘッダ値（カンマ区切り）
+
+### 動作概要
+
+- Go側でルールに一致したレスポンスに `X-Mamotama-Cacheable` と `X-Accel-Expires` を付与
+- nginx がこれらのヘッダを元にキャッシュを管理
+- 認証付きリクエスト、Cookieあり、APIパスはデフォルトでキャッシュされません
+
+### 確認方法
+
+- レスポンスヘッダに以下が含まれているか確認
+  - `X-Mamotama-Cacheable: 1`
+  - `X-Accel-Expires: <秒数>`
+- nginx の `X-Cache-Status` ヘッダでキャッシュヒット状況を確認可能（MISS/HIT/BYPASS 等）
 
 ## 今後の予定
 
