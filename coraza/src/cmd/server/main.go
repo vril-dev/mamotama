@@ -6,11 +6,12 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+
+	"mamotama/internal/cacheconf"
 	"mamotama/internal/config"
 	"mamotama/internal/handler"
-	"mamotama/internal/waf"
-
 	"mamotama/internal/middleware"
+	"mamotama/internal/waf"
 )
 
 func main() {
@@ -57,6 +58,16 @@ func main() {
 
 		handler.ProxyHandler(c)
 	})
+
+	const cacheConfPath = "conf/cache.conf"
+	stopWatch, err := cacheconf.Watch(cacheConfPath, func(rs *cacheconf.Ruleset) {
+		//
+	})
+	if err != nil {
+		log.Printf("[CACHE] watch disabled: %v", err)
+	} else {
+		defer stopWatch()
+	}
 
 	r.Run(":9090")
 }

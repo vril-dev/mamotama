@@ -2,10 +2,15 @@ package handler
 
 import (
 	"log"
+
+	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"mamotama/internal/cacheconf"
 	"mamotama/internal/config"
 	"mamotama/internal/waf"
 )
@@ -20,6 +25,36 @@ func ProxyHandler(c *gin.Context) {
 			log.Fatalf("Invalid WAF_APP_URL: %v", err)
 		}
 		proxy = httputil.NewSingleHostReverseProxy(targetURL)
+
+		proxy.ModifyResponse = func(res *http.Response) error {
+			rs := cacheconf.Get()
+			if rs == nil || res == nil || res.Request == nil {
+				return nil
+			}
+
+			method := res.Request.Method
+			if method != http.MethodGet && method != http.MethodHead {
+				return nil
+			}
+
+			path := res.Request.URL.Path
+			if rule, allow := rs.Match(method, path); allow {
+				ttl := rule.TTL
+				if ttl <= 0 {
+					ttl = 600
+				}
+
+				h := res.Header
+				h.Set("X-Mamotama-Cacheable", "1")
+				h.Set("X-Accel-Expires", strconv.Itoa(ttl))
+				if len(rule.Vary) > 0 {
+					h.Set("Vary", strings.Join(rule.Vary, ", "))
+				}
+
+			}
+
+			return nil
+		}
 	}
 
 	tx := waf.WAF.NewTransaction()

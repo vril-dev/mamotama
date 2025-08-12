@@ -6,9 +6,11 @@ ARG NGX_CORAZA_UPSTREAM
 ENV NGX_CORAZA_UPSTREAM=${NGX_CORAZA_UPSTREAM}
 ARG NGX_CORAZA_ADMIN_URL
 ENV NGX_CORAZA_ADMIN_URL=${NGX_CORAZA_ADMIN_URL}
+ARG NGX_CORAZA_API_BASEPATH
+ENV NGX_CORAZA_API_BASEPATH=${NGX_CORAZA_API_BASEPATH}
 
 RUN apk add --no-cache bash curl gettext
 
 COPY waf /etc/openresty/waf
 COPY nginx.conf /tmp/nginx.conf.template
-RUN envsubst '$$NGX_CORAZA_UPSTREAM $$NGX_BACKEND_RESPONSE_TIMEOUT $$NGX_CORAZA_ADMIN_URL' < /tmp/nginx.conf.template > /usr/local/openresty/nginx/conf/nginx.conf
+RUN envsubst '$$NGX_CORAZA_API_BASEPATH $$NGX_CORAZA_UPSTREAM $$NGX_BACKEND_RESPONSE_TIMEOUT $$NGX_CORAZA_ADMIN_URL' < /tmp/nginx.conf.template > /usr/local/openresty/nginx/conf/nginx.conf
