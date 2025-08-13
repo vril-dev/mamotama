@@ -60,3 +60,45 @@ export async function apiPostText(path: string, body: string, init: RequestInit 
 
     return res;
 }
+
+export async function apiPostJson<T = any>(path: string, body: unknown, init: RequestInit = {}) {
+    const headers = new Headers(init.headers || {});
+    headers.set("Content-Type", "application/json");
+    withKey(headers)
+
+    const res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        ...init,
+        headers,
+        credentials: "include",
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (! res.ok) {
+        throw new Error((data as any)?.error || `HTTP ${res.status}`);
+    }
+
+    return data as T;
+}
+
+export async function apiPutJson<T = any>(path: string, body: unknown, init: RequestInit = {}) {
+    const headers = new Headers(init.headers ||{});
+    headers.set("Content-Type", "application/json");
+    withKey(headers);
+
+    const res = await fetch(`${API_BASE}${path}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+        ...init,
+        headers,
+        credentials: "include",
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (! res.ok) {
+        throw new Error((data as any)?.error ||`HTTP ${res.status}`);
+    }
+
+    return data as T;
+}

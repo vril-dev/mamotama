@@ -38,6 +38,7 @@ func main() {
 					config.APIBasePath + "/logs",
 					config.APIBasePath + "/rules",
 					config.APIBasePath + "/bypass",
+					config.APIBasePath + "/cache-rules",
 				},
 			})
 		})
@@ -47,6 +48,9 @@ func main() {
 		api.GET("/rules", handler.RulesHandler)
 		api.GET("/bypass", handler.GetBypassHandler)
 		api.POST("/bypass", handler.SaveBypassHandler)
+		api.GET("/cache-rules", handler.GetCacheRules)
+		api.POST("/cache-rules:validate", handler.ValidateCacheRules)
+		api.PUT("/cache-rules", handler.PutCacheRules)
 	}
 
 	r.NoRoute(func(c *gin.Context) {
