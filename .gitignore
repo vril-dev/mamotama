@@ -33,3 +33,6 @@ go.work.sum
 
 data/rules
 !data/rules/empty
+data/conf
+!data/conf/cache.conf
+!data/conf/waf.bypass

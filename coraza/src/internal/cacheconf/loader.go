@@ -77,6 +77,65 @@ func Load(path string) (*Ruleset, error) {
 	return rs, sc.Err()
 }
 
+func LoadFromString(s string) (*Ruleset, error) {
+	sc := bufio.NewScanner(strings.NewReader(s))
+
+	return parseScanner(sc)
+}
+
+func LoadFromBytes(b []byte) (*Ruleset, error) {
+	return LoadFromString(string(b))
+}
+
+func parseScanner(sc *bufio.Scanner) (*Ruleset, error) {
+	rs := &Ruleset{}
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		r := Rule{Kind: strings.ToUpper(fields[0]), TTL: 600}
+		for _, opt := range fields[1:] {
+			kv := strings.SplitN(opt, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+
+			k := strings.ToLower(kv[0])
+			v := kv[1]
+			switch k {
+			case "prefix":
+				r.Prefix = v
+			case "regex":
+				if re, err := regexp.Compile(v); err == nil {
+					r.Regex = re
+				}
+			case "exact":
+				r.Exact = v
+			case "methods":
+				r.Methods = map[string]bool{}
+				for _, m := range strings.Split(v, ",") {
+					r.Methods[strings.ToUpper(strings.TrimSpace(m))] = true
+				}
+			case "ttl":
+				if t, err := strconv.Atoi(v); err == nil {
+					r.TTL = t
+				}
+			case "vary":
+				r.Vary = splitTrim(v, ",")
+			}
+		}
+		rs.Rules = append(rs.Rules, r)
+	}
+	return rs, sc.Err()
+}
+
 func (rs *Ruleset) Match(method, path string) (*Rule, bool) {
 	m := strings.ToUpper(method)
 	for i := range rs.Rules {

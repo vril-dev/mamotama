@@ -7,6 +7,8 @@ Coraza + CRS WAFプロジェクト
 このプロジェクトは、Coraza WAF と OWASP Core Rule Set (CRS) を組み合わせた
 軽量かつ強力なアプリケーション防御システム「mamotama」です。
 
+---
+
 ## ルールファイルについて
 
 本リポジトリには、OWASP CRS のルールファイル（`rules/conf/*.conf`）や `crs-setup.conf` は含まれていません。
@@ -25,20 +27,44 @@ cp plugins/*.conf ../coraza/rules/conf/.
 
 `rules/crs-setup.conf` は必要に応じて編集してください（`Paranoia Level` や `anomaly` スコアなど）。
 
+---
+
 ## 環境変数
 
-以下のように `.env` ファイルで挙動を制御可能です
+`.env` ファイルで挙動を制御可能です。
 
-| 変数名 | 説明 | デフォルト |
+### Nginx（openresty 側）
+
+| 変数名 | 例 | 説明 |
 | --- | --- | --- |
-| `WAF_APP_URL` | バックエンドのURL（プロキシ先） | `（必須）` |
-| `WAF_LOG_FILE` | WAFログ出力ファイルパス。未指定なら標準出力 | （空） |
-| `WAF_BYPASS_FILE` | バイパス定義ファイル | `conf/waf.bypass` |
-| `WAF_RULES_FILE` | 使用するルールファイル（カンマ区切りで複数指定可） | `rules/mamotama.conf` |
-| `WAF_STRICT_OVERRIDE` | 特別ルールファイル読み込み失敗時の挙動を制御（trueで強制終了） | `false` |
-| `NGX_CORAZA_UPSTREAM` | nginx用：Corazaの接続先を `server host:port;` 形式で指定（複数可） | `server coraza:9090;` |
-| `NGX_BACKEND_RESPONSE_TIMEOUT` | nginx用：Corazaからの応答タイムアウト時間 | `60s` |
-| `VITE_APP_BASE_PATH` | Reactダッシュボードのベースパス（例: `/mamotama-admin`） | `/mamotama-admin` |
+| `NGX_CORAZA_UPSTREAM` | `server coraza:9090;` | Coraza（Goサーバ）の upstream 定義。`server host:port;` を複数行で並べれば簡易ロードバランス可。 |
+| `NGX_BACKEND_RESPONSE_TIMEOUT` | `60s` | 上流（Coraza）からの応答タイムアウト。`proxy_read_timeout` に反映。 |
+| `NGX_CORAZA_ADMIN_URL` | `/mamotama-admin/` | 管理UIの公開パス。末尾スラッシュ必須。このパスに来たリクエストをフロント（`web:5173`）へプロキシ。 |
+| `NGX_CORAZA_API_BASEPATH` | `/mamotama-api/` | 管理APIのベースパス。末尾スラッシュ推奨。このパス配下は nginx 側で常に非キャッシュ扱い。 |
+
+### WAF / Go（Coraza ラッパー）
+
+| 変数名 | 例 | 説明 |
+| --- | --- | --- |
+| `WAF_APP_URL` | `http://host.docker.internal:3000` | 透過先アプリの URL（ALB/ECS 等の本番では適宜変更）。 |
+| `WAF_LOG_FILE` | (空) | WAFログの出力先。未設定なら標準出力。 |
+| `WAF_BYPASS_FILE` | `conf/waf.bypass` | バイパス/特別ルール定義ファイルのパス。 |
+| `WAF_RULES_FILE` | `rules/mamotama.conf` | 使用するルールファイル（カンマ区切りで複数指定も可）。 |
+| `WAF_STRICT_OVERRIDE` | `false` | 特別ルール読み込み失敗時の挙動。`true`で即終了、`false`で警告のみ継続。 |
+| `WAF_API_BASEPATH` | `/mamotama-api` | 管理APIのベースパス（Go側のルーティング基準）。 |
+| `WAF_API_KEY_PRIMARY` | `…` | 管理API用の主キー（`X-API-Key`）。 |
+| `WAF_API_KEY_SECONDARY` | (空) | 予備キー（ローテーション時の切替用。未使用なら空でOK）。 |
+| `WAF_API_AUTH_DISABLE` | (空) | 認証無効化フラグ。運用では空（false相当）推奨。テストで無効化したいときのみ truthy 値。 |
+
+### 管理UI（React / Vite）
+
+| 変数名 | 例 | 説明 |
+| --- | --- | --- |
+| `VITE_CORAZA_API_BASE` | `http://localhost/mamotama-api` | ブラウザから叩く API のフル/相対ベース。リバースプロキシの都合に合わせて指定。 |
+| `VITE_APP_BASE_PATH` | `/mamotama-admin` | 管理UIのルートパス（`react-router` の basename）。 |
+| `VITE_API_KEY` | `…` | 管理UIが API へ付与する `X-API-Key`。通常は `WAF_API_KEY_PRIMARY` と同値。 |
+
+---
 
 ## 管理ダッシュボード
 
@@ -52,6 +78,7 @@ cp plugins/*.conf ../coraza/rules/conf/.
 | `/logs` | WAFログの取得・表示 |
 | `/rules` | 使用中のルールファイルの一覧表示 |
 | `/bypass` | バイパス設定の閲覧・編集（waf.bypassを直接操作） |
+| `/cache-rules` | Cache Rules の可視化・編集（cache.conf の表編集／Raw編集、Validate/Save対応） |
 
 ### ライブラリ
 
@@ -74,6 +101,8 @@ docker compose up -d coraza openresty
 
 環境変数 `.env` に `VITE_APP_BASE_PATH` および `VITE_API_BASE_PATH` を定義することで、ルートパスを変更できます。
 
+---
+
 ## API管理エンドポイント（/mamotama-api）
 
 ### エンドポイント一覧
@@ -85,8 +114,14 @@ docker compose up -d coraza openresty
 | GET | `/mamotama-api/rules` | ルールファイル一覧を取得（複数対応） |
 | GET | `/mamotama-admin/bypass` | バイパス設定ファイルの内容を取得 |
 | POST | `/mamotama-admin/bypass` | バイパス設定ファイルを上書き保存 |
+| GET  | `/mamotama-api/cache-rules` | cache.conf の現在内容（Raw + 構造化）と `ETag` を返す |
+| POST | `/mamotama-api/cache-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
+| PUT | `/mamotama-api/cache-rules` | cache.conf を保存（`If-Match` に `ETag` を指定して楽観ロック） |
+
 
 ログやルールが設定されていない場合は `500` で `{"error": "...説明..."}` を返します。
+
+---
 
 ## WAFバイパス・特別ルール設定について
 
@@ -135,6 +170,8 @@ mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して
 * ルール記述はファイル上で上から順に評価されます
 * `extraRuleFile` を指定した行が優先されます
 * コメント行（`#`で始まる）は無視されます
+
+---
 
 ## キャッシュ機能（0.4.1以降）
 
@@ -186,9 +223,7 @@ DENY regex=^/users/[0-9]+/profile
   - `X-Accel-Expires: <秒数>`
 - nginx の `X-Cache-Status` ヘッダでキャッシュヒット状況を確認可能（MISS/HIT/BYPASS 等）
 
-## 今後の予定
-
-mamotama は従来のルールベース型WAF（Coraza + CRS）に加えて、将来的に AI による学習フィードバック型の構成を取り入れる予定です。
+---
 
 ## 免責事項
 

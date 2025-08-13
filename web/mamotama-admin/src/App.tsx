@@ -5,6 +5,7 @@ import Logs from './pages/Logs';
 import Rules from './pages/Rules';
 import Settings from './pages/Settings';
 import BypassEditor from './pages/BypassEditor';
+import CacheRulePanel from './pages/CacheRulesPanel';
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="logs" element={<Logs />} />
           <Route path="rules" element={<Rules />} />
           <Route path="bypass" element={<BypassEditor />} />
+          <Route path="cache" element={<CacheRulePanel />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
