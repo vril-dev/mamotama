@@ -21,8 +21,8 @@ Coraza + CRS WAFプロジェクト
 git clone https://github.com/coreruleset/coreruleset.git
 cd coreruleset
 cp crs-setup.conf.example ../coraza/rules/crs-setup.conf
-cp rules/*.conf ../coraza/rules/conf/.
-cp plugins/*.conf ../coraza/rules/conf/.
+cp rules/*.conf ../data/rules/.
+cp plugins/*.conf ../data/rules/.
 ```
 
 `rules/crs-setup.conf` は必要に応じて編集してください（`Paranoia Level` や `anomaly` スコアなど）。
