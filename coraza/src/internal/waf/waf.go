@@ -7,6 +7,8 @@ import (
 	"github.com/corazawaf/coraza/v3"
 	"github.com/corazawaf/coraza/v3/debuglog"
 	"github.com/corazawaf/coraza/v3/types"
+
+	"mamotama/internal/bypassconf"
 	"mamotama/internal/config"
 )
 
@@ -30,5 +32,11 @@ func InitWAF() {
 	WAF, err = coraza.NewWAF(cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize WAF: %v", err)
+	}
+
+	if err := bypassconf.Init(config.BypassFile); err != nil {
+		log.Printf("[BYPASS][INIT][ERR] %v (path=%s)", err, config.BypassFile)
+	} else {
+		log.Printf("[BYPASS][INIT] watching %s", bypassconf.GetPath())
 	}
 }
