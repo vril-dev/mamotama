@@ -3,9 +3,8 @@ import Layout from './components/Layout';
 import Status from './pages/Status';
 import Logs from './pages/Logs';
 import Rules from './pages/Rules';
-import Settings from './pages/Settings';
-import BypassEditor from './pages/BypassEditor';
 import CacheRulePanel from './pages/CacheRulesPanel';
+import BypassRulesPanel from './pages/BypassRulesPanel';
 
 function App() {
   return (
@@ -16,9 +15,8 @@ function App() {
           <Route path="status" element={<Status />} />
           <Route path="logs" element={<Logs />} />
           <Route path="rules" element={<Rules />} />
-          <Route path="bypass" element={<BypassEditor />} />
+          <Route path="bypass" element={<BypassRulesPanel />} />
           <Route path="cache" element={<CacheRulePanel />} />
-          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

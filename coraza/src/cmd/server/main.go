@@ -37,7 +37,7 @@ func main() {
 					config.APIBasePath + "/status",
 					config.APIBasePath + "/logs",
 					config.APIBasePath + "/rules",
-					config.APIBasePath + "/bypass",
+					config.APIBasePath + "/bypass-rules",
 					config.APIBasePath + "/cache-rules",
 				},
 			})
@@ -46,8 +46,9 @@ func main() {
 		api.GET("/status", handler.StatusHandler)
 		api.GET("/logs", handler.LogsHandler)
 		api.GET("/rules", handler.RulesHandler)
-		api.GET("/bypass", handler.GetBypassHandler)
-		api.POST("/bypass", handler.SaveBypassHandler)
+		api.GET("/bypass-rules", handler.GetBypassRules)
+		api.POST("/bypass-rules:validate", handler.ValidateBypassRules)
+		api.PUT("/bypass-rules", handler.PutBypassRules)
 		api.GET("/cache-rules", handler.GetCacheRules)
 		api.POST("/cache-rules:validate", handler.ValidateCacheRules)
 		api.PUT("/cache-rules", handler.PutCacheRules)

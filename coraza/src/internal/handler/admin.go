@@ -15,9 +15,10 @@ func StatusHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "running",
 		"rules_file":  config.RulesFile,
+		"bypass_file": config.BypassFile,
 		"log_file":    config.LogFile,
 		"strict_mode": config.StrictOverride,
-		"admin_base":  config.APIBasePath,
+		"api_base":    config.APIBasePath,
 	})
 }
 
