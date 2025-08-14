@@ -11,9 +11,8 @@ export default function Layout() {
           <Link to="/status" className={pathname === '/status' ? 'font-bold' : ''}>Status</Link>
           <Link to="/logs" className={pathname === '/logs' ? 'font-bold' : ''}>Logs</Link>
           <Link to="/rules" className={pathname === '/rules' ? 'font-bold' : ''}>Rules</Link>
-          <Link to="/bypass" className={pathname === '/bypass' ? 'font-bold' : ''}>Bypass</Link>
-          <Link to="/cache" className={pathname === '/cache' ? 'font-bold' : ''}>Cache</Link>
-          <Link to="/settings" className={pathname === '/settings' ? 'font-bold' : ''}>Settings</Link>
+          <Link to="/bypass" className={pathname === '/bypass' ? 'font-bold' : ''}>Bypass Rules</Link>
+          <Link to="/cache" className={pathname === '/cache' ? 'font-bold' : ''}>Cache Rules</Link>
         </nav>
       </aside>
       <main className="flex-1 p-6 bg-gray-100 overflow-y-auto">
