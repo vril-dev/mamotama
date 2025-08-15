@@ -2,6 +2,8 @@
 
 Coraza + CRS WAFプロジェクト
 
+![管理画面トップ](docs/images/admin-dashboard.png)
+
 ## 概要
 
 このプロジェクトは、Coraza WAF と OWASP Core Rule Set (CRS) を組み合わせた
@@ -12,6 +14,8 @@ Coraza + CRS WAFプロジェクト
 ## ルールファイルについて
 
 本リポジトリには、OWASP CRS のルールファイル（`rules/conf/*.conf`）や `crs-setup.conf` は含まれていません。
+
+![管理画面 Rules](docs/images/admin-rules.png)
 
 ### セットアップ手順
 
@@ -70,6 +74,8 @@ cp plugins/*.conf ../data/rules/.
 
 `web/mamotama-admin/` 以下には、React + Vite による管理UIが含まれています。
 
+![管理画面 Dashboard](docs/images/admin-dashboard.png)
+
 ### 主な画面と機能
 
 | パス | 説明 |
@@ -110,7 +116,8 @@ docker compose up -d coraza openresty
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/mamotama-api/status` | 現在のWAF設定状態を取得 |
-| GET | `/mamotama-api/logs` | WAFログ（tail）を取得 |
+| GET | `/mamotama-api/logs/read` | WAFログ（tail）を取得 |
+| GET | `/mamotama-api/logs/download` | 3種類のログファイル（`waf` / `accerr` / `intr`）をZIPでまとめてダウンロード |
 | GET | `/mamotama-api/rules` | ルールファイル一覧を取得（複数対応） |
 | GET | `/mamotama-admin/bypass` | バイパス設定ファイルの内容を取得 |
 | POST | `/mamotama-admin/bypass` | バイパス設定ファイルを上書き保存 |
@@ -126,6 +133,8 @@ docker compose up -d coraza openresty
 ## WAFバイパス・特別ルール設定について
 
 mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して除外（バイパス）したり、特定のルールのみを適用する機能を備えています。
+
+![管理画面 Bypass Rules](docs/images/admin-bypass-rules.png)
 
 ### バイパスファイルの指定
 
@@ -173,9 +182,28 @@ mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して
 
 ---
 
-## キャッシュ機能（0.4.1以降）
+## ログの確認
 
-mamotama 0.4.1 から、キャッシュ対象のパスやTTLを動的に設定できる機能を追加しました。
+本システムのログは API 経由で取得できます。
+
+```bash
+curl -s -H "X-API-Key: <your-api-key>" \
+     "http://<host>/mamotama-api/logs?src=waf&tail=100" | jq .
+```
+
+* src: ログ種別 (waf, accerr, intr)
+* tail: 取得件数
+
+API キーは .env で設定した API_KEY を使用してください。
+実運用環境ではアクセス制限や認証を必ず設定してください。
+
+![管理画面 Logs](docs/images/admin-logs.png)
+
+## キャッシュ機能
+
+キャッシュ対象のパスやTTLを動的に設定できる機能を追加しました。
+
+![管理画面 Cash Rules](docs/images/admin-cache-rules.png)
 
 ### 設定ファイル
 キャッシュ設定は `/data/conf/cache.conf` に記述します。  
@@ -222,6 +250,13 @@ DENY regex=^/users/[0-9]+/profile
   - `X-Mamotama-Cacheable: 1`
   - `X-Accel-Expires: <秒数>`
 - nginx の `X-Cache-Status` ヘッダでキャッシュヒット状況を確認可能（MISS/HIT/BYPASS 等）
+
+---
+
+## 管理画面のアクセス制限について
+
+本プロジェクトにはデフォルトでアクセス制限機能は含まれていません。  
+管理画面（NGX_CORAZA_ADMIN_URL で公開されるパス）を利用する場合は、必ず Basic 認証や IP 制限などのアクセス制御を設定してください。
 
 ---
 
