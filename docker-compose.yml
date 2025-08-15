@@ -1,6 +1,6 @@
 services:    
   coraza:
-    user: "${PUID}:${PGID}"
+    user: "${PUID}:${GUID}"
     build:
       context: ./coraza
       dockerfile: Dockerfile
@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
   openresty:
     cap_add: ["NET_BIND_SERVICE"]
-    user: "${PUID}:${PGID}"
+    user: "${PUID}:${GUID}"
     build:
       context: ./openresty
       dockerfile: Dockerfile
@@ -45,7 +45,6 @@ services:
       - ./data/logs/openresty:/data/logs/openresty
     depends_on:
       - coraza
-      - web
     restart: unless-stopped
   web:
     image: node:22

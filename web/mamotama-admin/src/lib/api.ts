@@ -102,3 +102,38 @@ export async function apiPutJson<T = any>(path: string, body: unknown, init: Req
 
     return data as T;
 }
+
+export async function apiGetBinary(path: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers || {});
+    withKey(headers);
+
+    const res = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers,
+        credentials: "include",
+    });
+
+    if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+
+        try {
+            const t = await res.text();
+            if (t) msg += ` ${t}`;
+        } catch {
+            //
+        }
+
+        throw new Error(msg);
+    }
+
+    const blob = await res.blob();
+    const contentType = res.headers.get("Content-Type") || "";
+    const cd = res.headers.get("Content-Disposition") || "";
+
+    const mStar = cd.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    const m = cd.match(/filename\s*=\s*"?(.*?)"?\s*(?:;|$)/i);
+    const encoded = (mStar && mStar[1]) || (m && m[1]) || "";
+    const filename = encoded ? decodeURIComponent(encoded) : undefined;
+
+    return { blob, filename, contentType };
+}
