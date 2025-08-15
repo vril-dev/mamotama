@@ -39,12 +39,15 @@ func main() {
 					config.APIBasePath + "/rules",
 					config.APIBasePath + "/bypass-rules",
 					config.APIBasePath + "/cache-rules",
+					config.APIBasePath + "/logs/read",
+					config.APIBasePath + "/logs/download",
 				},
 			})
 		})
 
 		api.GET("/status", handler.StatusHandler)
-		api.GET("/logs", handler.LogsHandler)
+		api.GET("/logs/read", handler.LogsRead)
+		api.GET("/logs/download", handler.LogsDownload)
 		api.GET("/rules", handler.RulesHandler)
 		api.GET("/bypass-rules", handler.GetBypassRules)
 		api.POST("/bypass-rules:validate", handler.ValidateBypassRules)

@@ -9,13 +9,15 @@ ENV NGX_CORAZA_ADMIN_URL=${NGX_CORAZA_ADMIN_URL}
 ARG NGX_CORAZA_API_BASEPATH
 ENV NGX_CORAZA_API_BASEPATH=${NGX_CORAZA_API_BASEPATH}
 ARG PUID
-ARG PGID
+ENV PUID=${PUID}
+ARG GUID
+ENV GUID=${GUID}
 
-RUN apk add --no-cache bash curl gettext
+RUN apk add --no-cache bash curl gettext apache2-utils
 
 COPY waf /etc/openresty/waf
 COPY nginx.conf /tmp/nginx.conf.template
 RUN envsubst '$$NGX_CORAZA_API_BASEPATH $$NGX_CORAZA_UPSTREAM $$NGX_BACKEND_RESPONSE_TIMEOUT $$NGX_CORAZA_ADMIN_URL' < /tmp/nginx.conf.template > /usr/local/openresty/nginx/conf/nginx.conf
 
 RUN mkdir /var/cache/nginx && \
-    chown -R ${PUID}:${PGID} /var/cache/nginx
+    chown -R ${PUID}:${GUID} /var/cache/nginx
