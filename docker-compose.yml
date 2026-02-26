@@ -48,12 +48,11 @@ services:
     restart: unless-stopped
   web:
     image: node:22
-    user: "1000"
     working_dir: /app
     command: sh -c "npm install && npm run dev"
     volumes:
       - ./web/mamotama-admin:/app
-      - ./web/mamotama-admin/node_modules:/app/node_modules
+      - web_node_modules:/app/node_modules
     ports:
       - "5173:5173"
     environment:
@@ -61,3 +60,6 @@ services:
       - VITE_APP_BASE_PATH=${VITE_APP_BASE_PATH}
       - VITE_API_KEY=${VITE_API_KEY}
     restart: unless-stopped
+
+volumes:
+  web_node_modules:
