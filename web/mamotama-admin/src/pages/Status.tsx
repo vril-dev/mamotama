@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { apiGetJson } from "@/lib/api";
 
-export default function State() {
+export default function Status() {
     const [data, setData] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         apiGetJson("/status")
             .then(setData)
-            .catch((err) => setError(err.mesasge));
+            .catch((err) => setError(err.message));
     }, []);
 
     if (error) {
@@ -21,7 +21,7 @@ export default function State() {
 
     return (
         <div>
-            <h2 className="text-2xl font-semiboild mb-4">WAF Status</h2>
+            <h2 className="text-2xl font-semibold mb-4">WAF Status</h2>
             <pre className="bg-gray-100 text-sm rounded p-4 shadow">
                 {JSON.stringify(data, null, 2)}
             </pre>

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -27,10 +29,6 @@ func ValidateBypassRules(c *gin.Context) {
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
-	}
-
-	if _, err := os.ReadFile(config.BypassFile); err != nil {
-		//
 	}
 
 	if _, err := validateRaw(in.Raw); err != nil {
@@ -73,15 +71,20 @@ func PutBypassRules(c *gin.Context) {
 }
 
 func validateRaw(s string) (int, error) {
-	es, err := func() ([]bypassconf.Entry, error) {
-		tmp := s // no-op
-		_ = tmp
-
-		return nil, nil
-	}()
-
+	es, err := bypassconf.Parse(s)
 	if err != nil {
 		return 0, err
+	}
+	for _, e := range es {
+		if e.ExtraRule == "" {
+			continue
+		}
+		if _, statErr := os.Stat(e.ExtraRule); statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) && !config.StrictOverride {
+				continue
+			}
+			return 0, fmt.Errorf("extra rule not found: %s", e.ExtraRule)
+		}
 	}
 
 	return len(es), nil

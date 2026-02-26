@@ -26,7 +26,7 @@ export default function Rules() {
 
     return (
         <div>
-            <h2 className="text-2xl font-smibold mb-4">WAFルール一覧</h2>
+            <h2 className="text-2xl font-semibold mb-4">WAFルール一覧</h2>
             <div className="space-y-6">
                 {Object.entries(rules).map(([filename, content]) => (
                     <div key={filename}>

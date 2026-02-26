@@ -110,16 +110,26 @@ func ProxyHandler(c *gin.Context) {
 	c.Writer.Header().Set("X-Request-ID", reqID)
 
 	reqPath := c.Request.URL.Path
+	wafEngine := waf.WAF
 	switch mr := bypassconf.Match(reqPath); mr.Action {
 	case bypassconf.ACTION_BYPASS:
 		log.Printf("[BYPASS][HIT] %s -> skip WAF", reqPath)
 		proxy.ServeHTTP(c.Writer, c.Request)
 		return
 	case bypassconf.ACTION_RULE:
-		log.Printf("[BYPASS][RULE] %s extra=%s (not applied yet)", reqPath, mr.ExtraRule)
+		log.Printf("[BYPASS][RULE] %s extra=%s", reqPath, mr.ExtraRule)
+		ruleWAF, err := waf.GetWAFForExtraRule(mr.ExtraRule)
+		if err != nil {
+			if config.StrictOverride {
+				log.Fatalf("[BYPASS][RULE][STRICT] %v", err)
+			}
+			log.Printf("[BYPASS][RULE][WARN] %v (fallback=default-rules)", err)
+		} else {
+			wafEngine = ruleWAF
+		}
 	}
 
-	tx := waf.WAF.NewTransaction()
+	tx := wafEngine.NewTransaction()
 	defer func() {
 		tx.ProcessLogging()
 		tx.Close()
@@ -136,11 +146,11 @@ func ProxyHandler(c *gin.Context) {
 
 	wafHit := false
 	ruleIDs := make([]string, 0, 4)
-	for _, mr := range tx.MatchedRules() {
+	for _, matched := range tx.MatchedRules() {
 		wafHit = true
 		// Rule().ID() on v3; fallback to mr.RuleID if your type differs
-		if mr.Rule() != nil {
-			ruleIDs = append(ruleIDs, strconv.Itoa(mr.Rule().ID()))
+		if matched.Rule() != nil {
+			ruleIDs = append(ruleIDs, strconv.Itoa(matched.Rule().ID()))
 		}
 	}
 

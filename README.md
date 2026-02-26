@@ -105,7 +105,7 @@ docker compose up web
 docker compose up -d coraza openresty
 ```
 
-環境変数 `.env` に `VITE_APP_BASE_PATH` および `VITE_API_BASE_PATH` を定義することで、ルートパスを変更できます。
+環境変数 `.env` に `VITE_APP_BASE_PATH` および `VITE_CORAZA_API_BASE` を定義することで、ルートパスを変更できます。
 
 ---
 
@@ -119,8 +119,9 @@ docker compose up -d coraza openresty
 | GET | `/mamotama-api/logs/read` | WAFログ（tail）を取得 |
 | GET | `/mamotama-api/logs/download` | 3種類のログファイル（`waf` / `accerr` / `intr`）をZIPでまとめてダウンロード |
 | GET | `/mamotama-api/rules` | ルールファイル一覧を取得（複数対応） |
-| GET | `/mamotama-admin/bypass` | バイパス設定ファイルの内容を取得 |
-| POST | `/mamotama-admin/bypass` | バイパス設定ファイルを上書き保存 |
+| GET | `/mamotama-api/bypass-rules` | バイパス設定ファイルの内容を取得 |
+| POST | `/mamotama-api/bypass-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
+| PUT | `/mamotama-api/bypass-rules` | バイパス設定ファイルを上書き保存（`If-Match` に `ETag` を指定して楽観ロック） |
 | GET  | `/mamotama-api/cache-rules` | cache.conf の現在内容（Raw + 構造化）と `ETag` を返す |
 | POST | `/mamotama-api/cache-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
 | PUT | `/mamotama-api/cache-rules` | cache.conf を保存（`If-Match` に `ETag` を指定して楽観ロック） |

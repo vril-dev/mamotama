@@ -2,6 +2,7 @@ package bypassconf
 
 import (
 	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -42,25 +43,27 @@ func Match(reqPath string) MatchResult {
 	p := normalize(reqPath)
 	mu.RLock()
 	defer mu.RUnlock()
+	bypassHit := false
 	for _, e := range entries {
+		matched := false
 		if eqLoosely(p, normalize(e.Path)) {
-			if e.ExtraRule != "" {
-				return MatchResult{Action: ACTION_RULE, ExtraRule: e.ExtraRule}
-			}
-
-			return MatchResult{Action: ACTION_BYPASS}
-		}
-
-		if strings.HasSuffix(e.Path, "/") {
+			matched = true
+		} else if strings.HasSuffix(e.Path, "/") {
 			pp := normalize(e.Path)
 			if strings.HasPrefix(p, pp) {
-				if e.ExtraRule != "" {
-					return MatchResult{Action: ACTION_RULE, ExtraRule: e.ExtraRule}
-				}
-
-				return MatchResult{Action: ACTION_BYPASS}
+				matched = true
 			}
 		}
+		if !matched {
+			continue
+		}
+		if e.ExtraRule != "" {
+			return MatchResult{Action: ACTION_RULE, ExtraRule: e.ExtraRule}
+		}
+		bypassHit = true
+	}
+	if bypassHit {
+		return MatchResult{Action: ACTION_BYPASS}
 	}
 
 	return MatchResult{Action: ACTION_NONE}
@@ -72,7 +75,7 @@ func reload() error {
 		return err
 	}
 
-	es, err := parse(string(b))
+	es, err := Parse(string(b))
 	if err != nil {
 		return err
 	}
@@ -85,12 +88,18 @@ func reload() error {
 	return nil
 }
 
-func parse(s string) ([]Entry, error) {
+func Parse(s string) ([]Entry, error) {
 	sc := bufio.NewScanner(strings.NewReader(s))
 	var out []Entry
+	lineNo := 0
 
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+		lineNo++
+		line := sc.Text()
+		if i := strings.Index(line, "#"); i >= 0 {
+			line = line[:i]
+		}
+		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -99,15 +108,20 @@ func parse(s string) ([]Entry, error) {
 		if len(parts) == 0 {
 			continue
 		}
+		if len(parts) > 2 {
+			return nil, fmt.Errorf("line %d: expected '<path>' or '<path> <rule.conf>'", lineNo)
+		}
+		if !strings.HasPrefix(parts[0], "/") {
+			return nil, fmt.Errorf("line %d: path must start with '/'", lineNo)
+		}
 
-		e := Entry{Path: parts[0]}
-		if len(parts) >= 2 {
-			for _, p := range parts[1:] {
-				if strings.HasPrefix(p, "rules/") || strings.HasSuffix(p, ".conf") {
-					e.ExtraRule = p
-					break
-				}
+		e := Entry{Path: normalize(parts[0])}
+		if len(parts) == 2 {
+			rule := strings.TrimSpace(parts[1])
+			if !strings.HasSuffix(strings.ToLower(rule), ".conf") {
+				return nil, fmt.Errorf("line %d: extra rule must be .conf file", lineNo)
 			}
+			e.ExtraRule = rule
 		}
 
 		out = append(out, e)
