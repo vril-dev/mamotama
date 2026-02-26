@@ -45,16 +45,7 @@ func Match(reqPath string) MatchResult {
 	defer mu.RUnlock()
 	bypassHit := false
 	for _, e := range entries {
-		matched := false
-		if eqLoosely(p, normalize(e.Path)) {
-			matched = true
-		} else if strings.HasSuffix(e.Path, "/") {
-			pp := normalize(e.Path)
-			if strings.HasPrefix(p, pp) {
-				matched = true
-			}
-		}
-		if !matched {
+		if !pathMatches(p, e.Path) {
 			continue
 		}
 		if e.ExtraRule != "" {
@@ -67,6 +58,15 @@ func Match(reqPath string) MatchResult {
 	}
 
 	return MatchResult{Action: ACTION_NONE}
+}
+
+func pathMatches(reqPath, rulePath string) bool {
+	normalizedRulePath := normalize(rulePath)
+	if eqLoosely(reqPath, normalizedRulePath) {
+		return true
+	}
+
+	return strings.HasSuffix(normalizedRulePath, "/") && strings.HasPrefix(reqPath, normalizedRulePath)
 }
 
 func reload() error {

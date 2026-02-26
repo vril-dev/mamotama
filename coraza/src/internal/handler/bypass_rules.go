@@ -15,6 +15,16 @@ type bypassPutBody struct {
 	Raw string `json:"raw"`
 }
 
+func bindBypassPutBody(c *gin.Context) (bypassPutBody, bool) {
+	var in bypassPutBody
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return bypassPutBody{}, false
+	}
+
+	return in, true
+}
+
 func GetBypassRules(c *gin.Context) {
 	path := config.BypassFile
 	raw, _ := os.ReadFile(path)
@@ -25,9 +35,8 @@ func GetBypassRules(c *gin.Context) {
 }
 
 func ValidateBypassRules(c *gin.Context) {
-	var in bypassPutBody
-	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	in, ok := bindBypassPutBody(c)
+	if !ok {
 		return
 	}
 
@@ -49,9 +58,8 @@ func PutBypassRules(c *gin.Context) {
 		return
 	}
 
-	var in bypassPutBody
-	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	in, ok := bindBypassPutBody(c)
+	if !ok {
 		return
 	}
 

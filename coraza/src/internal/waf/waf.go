@@ -18,6 +18,26 @@ var WAF coraza.WAF
 var overrideMu sync.RWMutex
 var overrideWAFs = map[string]coraza.WAF{}
 
+func getCachedOverrideWAF(rule string) (coraza.WAF, bool) {
+	overrideMu.RLock()
+	w, ok := overrideWAFs[rule]
+	overrideMu.RUnlock()
+
+	return w, ok
+}
+
+func setCachedOverrideWAF(rule string, w coraza.WAF) (coraza.WAF, bool) {
+	overrideMu.Lock()
+	if existing, ok := overrideWAFs[rule]; ok {
+		overrideMu.Unlock()
+		return existing, false
+	}
+	overrideWAFs[rule] = w
+	overrideMu.Unlock()
+
+	return w, true
+}
+
 func buildWAF(files []string) (coraza.WAF, error) {
 	cfg := coraza.NewWAFConfig().
 		WithDebugLogger(debuglog.Default().WithLevel(debuglog.LevelInfo)).
@@ -71,26 +91,20 @@ func GetWAFForExtraRule(extraRule string) (coraza.WAF, error) {
 		return WAF, nil
 	}
 
-	overrideMu.RLock()
-	if w, ok := overrideWAFs[rule]; ok {
-		overrideMu.RUnlock()
+	if w, ok := getCachedOverrideWAF(rule); ok {
 		return w, nil
 	}
-	overrideMu.RUnlock()
 
 	w, err := buildWAF([]string{rule})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load extra rule %q: %w", rule, err)
 	}
 
-	overrideMu.Lock()
-	if existing, ok := overrideWAFs[rule]; ok {
-		overrideMu.Unlock()
-		return existing, nil
+	var inserted bool
+	w, inserted = setCachedOverrideWAF(rule, w)
+	if inserted {
+		log.Printf("[BYPASS][RULE] loaded extra rules from: %s", rule)
 	}
-	overrideWAFs[rule] = w
-	overrideMu.Unlock()
-	log.Printf("[BYPASS][RULE] loaded extra rules from: %s", rule)
 
 	return w, nil
 }

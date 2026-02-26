@@ -11,8 +11,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/corazawaf/coraza/v3"
 	"github.com/gin-gonic/gin"
 
 	"mamotama/internal/bypassconf"
@@ -30,78 +32,88 @@ const (
 	ctxKeyIP      ctxKey = "client_ip"
 )
 
-var targetURL *url.URL
 var proxy *httputil.ReverseProxy
+var proxyInitOnce sync.Once
 
 func ensureProxy() {
-	if proxy != nil {
+	proxyInitOnce.Do(func() {
+		u, err := url.Parse(config.AppURL)
+		if err != nil {
+			log.Fatalf("Invalid WAF_APP_URL: %v", err)
+		}
+		proxy = httputil.NewSingleHostReverseProxy(u)
+		proxy.ModifyResponse = onProxyResponse
+	})
+}
+
+func onProxyResponse(res *http.Response) error {
+	annotateWAFHit(res)
+	applyCacheHeaders(res)
+
+	return nil
+}
+
+func annotateWAFHit(res *http.Response) {
+	if res == nil || res.Request == nil {
 		return
 	}
-	u, err := url.Parse(config.AppURL)
-	if err != nil {
-		log.Fatalf("Invalid WAF_APP_URL: %v", err)
+
+	ctx := res.Request.Context()
+	if hit, _ := ctx.Value(ctxKeyWafHit).(bool); !hit {
+		return
 	}
-	targetURL = u
-	proxy = httputil.NewSingleHostReverseProxy(targetURL)
+	if res.Header != nil {
+		res.Header.Set("X-WAF-Hit", "1")
+		if rid, _ := ctx.Value(ctxKeyWafRule).(string); rid != "" {
+			res.Header.Set("X-WAF-RuleIDs", rid)
+		}
+	}
 
-	proxy.ModifyResponse = func(res *http.Response) error {
-		if res != nil && res.Request != nil {
-			ctx := res.Request.Context()
-			if hit, _ := ctx.Value(ctxKeyWafHit).(bool); hit {
-				if res.Header != nil {
-					res.Header.Set("X-WAF-Hit", "1")
-					if rid, _ := ctx.Value(ctxKeyWafRule).(string); rid != "" {
-						res.Header.Set("X-WAF-RuleIDs", rid)
-					}
-				}
+	reqID, _ := ctx.Value(ctxKeyReqID).(string)
+	ip, _ := ctx.Value(ctxKeyIP).(string)
+	path := res.Request.URL.Path
+	status := res.StatusCode
+	emitJSONLog(map[string]any{
+		"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+		"service": "coraza",
+		"level":   "INFO",
+		"event":   "waf_hit_allow",
+		"req_id":  reqID,
+		"ip":      ip,
+		"path":    path,
+		"rules":   res.Header.Get("X-WAF-RuleIDs"),
+		"status":  status,
+	})
+}
 
-				reqID, _ := ctx.Value(ctxKeyReqID).(string)
-				ip, _ := ctx.Value(ctxKeyIP).(string)
-				path := res.Request.URL.Path
-				status := res.StatusCode
-				emitJSONLog(map[string]any{
-					"ts":      time.Now().UTC().Format(time.RFC3339Nano),
-					"service": "coraza",
-					"level":   "INFO",
-					"event":   "waf_hit_allow",
-					"req_id":  reqID, "ip": ip, "path": path,
-					"rules":  res.Header.Get("X-WAF-RuleIDs"),
-					"status": status,
-				})
-			}
+func applyCacheHeaders(res *http.Response) {
+	rs := cacheconf.Get()
+	if rs == nil || res == nil || res.Request == nil {
+		return
+	}
+
+	method := res.Request.Method
+	if method != http.MethodGet && method != http.MethodHead {
+		return
+	}
+
+	path := res.Request.URL.Path
+	if rule, allow := rs.Match(method, path); allow {
+		ttl := rule.TTL
+		if ttl <= 0 {
+			ttl = 600
 		}
 
-		rs := cacheconf.Get()
-		if rs == nil || res == nil || res.Request == nil {
-			return nil
+		h := res.Header
+		h.Set("X-Mamotama-Cacheable", "1")
+		h.Set("X-Accel-Expires", strconv.Itoa(ttl))
+		if len(rule.Vary) > 0 {
+			h.Set("Vary", strings.Join(rule.Vary, ", "))
 		}
-
-		method := res.Request.Method
-		if method != http.MethodGet && method != http.MethodHead {
-			return nil
-		}
-
-		path := res.Request.URL.Path
-		if rule, allow := rs.Match(method, path); allow {
-			ttl := rule.TTL
-			if ttl <= 0 {
-				ttl = 600
-			}
-
-			h := res.Header
-			h.Set("X-Mamotama-Cacheable", "1")
-			h.Set("X-Accel-Expires", strconv.Itoa(ttl))
-			if len(rule.Vary) > 0 {
-				h.Set("Vary", strings.Join(rule.Vary, ", "))
-			}
-		}
-		return nil
 	}
 }
 
-func ProxyHandler(c *gin.Context) {
-	ensureProxy()
-
+func ensureRequestID(c *gin.Context) string {
 	reqID := c.Request.Header.Get("X-Request-ID")
 	if reqID == "" {
 		reqID = genReqID()
@@ -109,13 +121,14 @@ func ProxyHandler(c *gin.Context) {
 	}
 	c.Writer.Header().Set("X-Request-ID", reqID)
 
-	reqPath := c.Request.URL.Path
+	return reqID
+}
+
+func selectWAFEngine(reqPath string) coraza.WAF {
 	wafEngine := waf.WAF
 	switch mr := bypassconf.Match(reqPath); mr.Action {
 	case bypassconf.ACTION_BYPASS:
-		log.Printf("[BYPASS][HIT] %s -> skip WAF", reqPath)
-		proxy.ServeHTTP(c.Writer, c.Request)
-		return
+		return nil
 	case bypassconf.ACTION_RULE:
 		log.Printf("[BYPASS][RULE] %s extra=%s", reqPath, mr.ExtraRule)
 		ruleWAF, err := waf.GetWAFForExtraRule(mr.ExtraRule)
@@ -124,9 +137,34 @@ func ProxyHandler(c *gin.Context) {
 				log.Fatalf("[BYPASS][RULE][STRICT] %v", err)
 			}
 			log.Printf("[BYPASS][RULE][WARN] %v (fallback=default-rules)", err)
-		} else {
-			wafEngine = ruleWAF
+			return wafEngine
 		}
+
+		return ruleWAF
+	default:
+		return wafEngine
+	}
+}
+
+func setWAFContext(c *gin.Context, reqID string, wafHit bool, ruleIDs string) {
+	ctx := context.WithValue(c.Request.Context(), ctxKeyReqID, reqID)
+	ctx = context.WithValue(ctx, ctxKeyIP, c.ClientIP())
+	ctx = context.WithValue(ctx, ctxKeyWafHit, wafHit)
+	ctx = context.WithValue(ctx, ctxKeyWafRule, ruleIDs)
+	c.Request = c.Request.WithContext(ctx)
+}
+
+func ProxyHandler(c *gin.Context) {
+	ensureProxy()
+
+	reqID := ensureRequestID(c)
+
+	reqPath := c.Request.URL.Path
+	wafEngine := selectWAFEngine(reqPath)
+	if wafEngine == nil {
+		log.Printf("[BYPASS][HIT] %s -> skip WAF", reqPath)
+		proxy.ServeHTTP(c.Writer, c.Request)
+		return
 	}
 
 	tx := wafEngine.NewTransaction()
@@ -154,11 +192,7 @@ func ProxyHandler(c *gin.Context) {
 		}
 	}
 
-	ctx := context.WithValue(c.Request.Context(), ctxKeyReqID, reqID)
-	ctx = context.WithValue(ctx, ctxKeyIP, c.ClientIP())
-	ctx = context.WithValue(ctx, ctxKeyWafHit, wafHit)
-	ctx = context.WithValue(ctx, ctxKeyWafRule, strings.Join(unique(ruleIDs), ","))
-	c.Request = c.Request.WithContext(ctx)
+	setWAFContext(c, reqID, wafHit, strings.Join(unique(ruleIDs), ","))
 
 	if it := tx.Interruption(); it != nil {
 		evt := map[string]any{

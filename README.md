@@ -90,7 +90,7 @@ cp plugins/*.conf ../data/rules/.
 
 * coraza 3.3.3
 * openresty 1.27
-* go 1.23
+* go 1.25.7
 * React 19
 * Vite 7
 * Tailwind CSS
