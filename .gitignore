@@ -31,8 +31,8 @@ go.work.sum
 # .idea/
 # .vscode/
 
-data/rules
-!data/rules/empty
+data/rules/*
+!data/rules/mamotama.conf
 data/conf
 !data/conf/cache.conf
 !data/conf/waf.bypass

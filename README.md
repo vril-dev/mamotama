@@ -14,6 +14,7 @@ Coraza + CRS WAFプロジェクト
 ## ルールファイルについて
 
 本リポジトリには、OWASP CRS のルールファイル（`rules/conf/*.conf`）や `crs-setup.conf` は含まれていません。
+代わりに、CRS未導入でも起動できる最小ベースルール `data/rules/mamotama.conf` を同梱しています。
 
 ![管理画面 Rules](docs/images/admin-rules.png)
 
