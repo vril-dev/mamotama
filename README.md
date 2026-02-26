@@ -13,24 +13,26 @@ Coraza + CRS WAFプロジェクト
 
 ## ルールファイルについて
 
-本リポジトリには、OWASP CRS のルールファイル（`rules/conf/*.conf`）や `crs-setup.conf` は含まれていません。
-代わりに、CRS未導入でも起動できる最小ベースルール `data/rules/mamotama.conf` を同梱しています。
+本リポジトリには、ライセンス順守のため OWASP CRS 本体は同梱していません。  
+代わりに、初期状態で動作可能な最小ベースルール `data/rules/mamotama.conf` を同梱しています。
 
 ![管理画面 Rules](docs/images/admin-rules.png)
 
 ### セットアップ手順
 
-以下のコマンドでルールセットを取得・配置してください。
+以下のコマンドで CRS を取得・配置してください（デフォルト: `v4.23.0`）。
 
 ```bash
-git clone https://github.com/coreruleset/coreruleset.git
-cd coreruleset
-cp crs-setup.conf.example ../coraza/rules/crs-setup.conf
-cp rules/*.conf ../data/rules/.
-cp plugins/*.conf ../data/rules/.
+./scripts/install_crs.sh
 ```
 
-`rules/crs-setup.conf` は必要に応じて編集してください（`Paranoia Level` や `anomaly` スコアなど）。
+バージョン指定例:
+
+```bash
+./scripts/install_crs.sh v4.23.0
+```
+
+`data/rules/crs/crs-setup.conf` は必要に応じて編集してください（`Paranoia Level` や `anomaly` スコアなど）。
 
 ---
 
@@ -55,11 +57,16 @@ cp plugins/*.conf ../data/rules/.
 | `WAF_LOG_FILE` | (空) | WAFログの出力先。未設定なら標準出力。 |
 | `WAF_BYPASS_FILE` | `conf/waf.bypass` | バイパス/特別ルール定義ファイルのパス。 |
 | `WAF_RULES_FILE` | `rules/mamotama.conf` | 使用するルールファイル（カンマ区切りで複数指定も可）。 |
+| `WAF_CRS_ENABLE` | `true` | CRSを読み込むかどうか。`false` ならベースルールのみ。 |
+| `WAF_CRS_SETUP_FILE` | `rules/crs/crs-setup.conf` | CRSセットアップ設定ファイル。 |
+| `WAF_CRS_RULES_DIR` | `rules/crs/rules` | CRS本体ルール（`*.conf`）のディレクトリ。 |
+| `WAF_CRS_DISABLED_FILE` | `conf/crs-disabled.conf` | CRS本体の無効化ファイル一覧。1行1ファイル名で指定。 |
 | `WAF_STRICT_OVERRIDE` | `false` | 特別ルール読み込み失敗時の挙動。`true`で即終了、`false`で警告のみ継続。 |
 | `WAF_API_BASEPATH` | `/mamotama-api` | 管理APIのベースパス（Go側のルーティング基準）。 |
 | `WAF_API_KEY_PRIMARY` | `…` | 管理API用の主キー（`X-API-Key`）。 |
 | `WAF_API_KEY_SECONDARY` | (空) | 予備キー（ローテーション時の切替用。未使用なら空でOK）。 |
 | `WAF_API_AUTH_DISABLE` | (空) | 認証無効化フラグ。運用では空（false相当）推奨。テストで無効化したいときのみ truthy 値。 |
+| `WAF_ALLOW_INSECURE_DEFAULTS` | (空) | 弱いAPIキーや認証無効化を許可する開発用フラグ。本番では設定しない。 |
 
 ### 管理UI（React / Vite）
 
@@ -68,6 +75,9 @@ cp plugins/*.conf ../data/rules/.
 | `VITE_CORAZA_API_BASE` | `http://localhost/mamotama-api` | ブラウザから叩く API のフル/相対ベース。リバースプロキシの都合に合わせて指定。 |
 | `VITE_APP_BASE_PATH` | `/mamotama-admin` | 管理UIのルートパス（`react-router` の basename）。 |
 | `VITE_API_KEY` | `…` | 管理UIが API へ付与する `X-API-Key`。通常は `WAF_API_KEY_PRIMARY` と同値。 |
+
+起動時に `WAF_API_KEY_PRIMARY` が短すぎる/既知の弱い値の場合、Corazaプロセスは安全側で起動失敗します。  
+ローカル検証だけ一時的に緩和したい場合は `WAF_ALLOW_INSECURE_DEFAULTS=1` を利用してください。
 
 ---
 
@@ -84,6 +94,7 @@ cp plugins/*.conf ../data/rules/.
 | `/status` | WAFの動作状況、設定の確認 |
 | `/logs` | WAFログの取得・表示 |
 | `/rules` | 使用中のルールファイルの一覧表示 |
+| `/rule-sets` | CRS本体ルール（`rules/crs/rules/*.conf`）の有効/無効切替 |
 | `/bypass` | バイパス設定の閲覧・編集（waf.bypassを直接操作） |
 | `/cache-rules` | Cache Rules の可視化・編集（cache.conf の表編集／Raw編集、Validate/Save対応） |
 
@@ -101,6 +112,7 @@ cp plugins/*.conf ../data/rules/.
 ### 起動方法
 
 ```bash
+./scripts/install_crs.sh
 docker compose build coraza openresty
 docker compose up web
 docker compose up -d coraza openresty
@@ -120,6 +132,11 @@ docker compose up -d coraza openresty
 | GET | `/mamotama-api/logs/read` | WAFログ（tail）を取得 |
 | GET | `/mamotama-api/logs/download` | 3種類のログファイル（`waf` / `accerr` / `intr`）をZIPでまとめてダウンロード |
 | GET | `/mamotama-api/rules` | ルールファイル一覧を取得（複数対応） |
+| POST | `/mamotama-api/rules:validate` | 指定ルールファイルの構文検証（保存なし） |
+| PUT | `/mamotama-api/rules` | 指定ルールファイルを保存し、WAFベースルールをホットリロード（`If-Match`対応） |
+| GET | `/mamotama-api/crs-rule-sets` | CRS本体ルール一覧と有効/無効状態を取得 |
+| POST | `/mamotama-api/crs-rule-sets:validate` | CRS本体ルール選択の検証（保存なし） |
+| PUT | `/mamotama-api/crs-rule-sets` | CRS本体ルール選択を保存し、ホットリロード（`If-Match`対応） |
 | GET | `/mamotama-api/bypass-rules` | バイパス設定ファイルの内容を取得 |
 | POST | `/mamotama-api/bypass-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
 | PUT | `/mamotama-api/bypass-rules` | バイパス設定ファイルを上書き保存（`If-Match` に `ETag` を指定して楽観ロック） |
@@ -160,6 +177,17 @@ mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して
 
 管理ダッシュボード `/bypass` 画面から、`waf.bypass` ファイルの内容を直接編集・保存できます。
 この画面では、全体の設定内容をテキスト形式で表示・編集し、保存ボタンで即時適用できます。
+
+### ルールファイル編集（複数対応）
+
+管理ダッシュボード `/rules` では、アクティブなベースルールセットを選択して編集できます（`WAF_RULES_FILE` と、CRS有効時は `crs-setup.conf` + 有効化されている `WAF_CRS_RULES_DIR` の `*.conf`）。  
+保存時はサーバ側で構文検証した後に反映され、Coraza のベースルールセットをホットリロードします。  
+リロード失敗時は自動でロールバックされます。
+
+### CRSルールセット切替
+
+管理ダッシュボード `/rule-sets` では、`rules/crs/rules/*.conf` の各ファイルを有効/無効で切り替えられます。  
+状態は `WAF_CRS_DISABLED_FILE` に保存され、保存時にWAFをホットリロードします。
 
 ### 優先順位
 
@@ -259,6 +287,25 @@ DENY regex=^/users/[0-9]+/profile
 
 本プロジェクトにはデフォルトでアクセス制限機能は含まれていません。  
 管理画面（NGX_CORAZA_ADMIN_URL で公開されるパス）を利用する場合は、必ず Basic 認証や IP 制限などのアクセス制御を設定してください。
+
+---
+
+## 品質ゲート（CI）
+
+GitHub Actions の `ci` ワークフローで以下を検証します。
+
+- `go test ./...`（`coraza/src`）
+- `docker compose config` の妥当性確認
+
+運用では、`ci / go-test` と `ci / compose-validate` をブランチ保護の Required Checks に設定してください。
+
+---
+
+## 誤検知チューニング運用
+
+誤検知の削減手順は以下を参照してください。
+
+- `docs/operations/waf-tuning.md`
 
 ---
 

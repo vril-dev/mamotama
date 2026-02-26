@@ -125,7 +125,7 @@ func ensureRequestID(c *gin.Context) string {
 }
 
 func selectWAFEngine(reqPath string) coraza.WAF {
-	wafEngine := waf.WAF
+	wafEngine := waf.GetBaseWAF()
 	switch mr := bypassconf.Match(reqPath); mr.Action {
 	case bypassconf.ACTION_BYPASS:
 		return nil

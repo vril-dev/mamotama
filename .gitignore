@@ -36,6 +36,7 @@ data/rules/*
 data/conf
 !data/conf/cache.conf
 !data/conf/waf.bypass
+!data/conf/crs-disabled.conf
 data/logs/coraza/*
 !data/logs/coraza/empty
 data/logs/openresty/*

@@ -37,6 +37,7 @@ func main() {
 					config.APIBasePath + "/status",
 					config.APIBasePath + "/logs",
 					config.APIBasePath + "/rules",
+					config.APIBasePath + "/crs-rule-sets",
 					config.APIBasePath + "/bypass-rules",
 					config.APIBasePath + "/cache-rules",
 					config.APIBasePath + "/logs/read",
@@ -49,6 +50,11 @@ func main() {
 		api.GET("/logs/read", handler.LogsRead)
 		api.GET("/logs/download", handler.LogsDownload)
 		api.GET("/rules", handler.RulesHandler)
+		api.POST("/rules:validate", handler.ValidateRules)
+		api.PUT("/rules", handler.PutRules)
+		api.GET("/crs-rule-sets", handler.GetCRSRuleSets)
+		api.POST("/crs-rule-sets:validate", handler.ValidateCRSRuleSets)
+		api.PUT("/crs-rule-sets", handler.PutCRSRuleSets)
 		api.GET("/bypass-rules", handler.GetBypassRules)
 		api.POST("/bypass-rules:validate", handler.ValidateBypassRules)
 		api.PUT("/bypass-rules", handler.PutBypassRules)
