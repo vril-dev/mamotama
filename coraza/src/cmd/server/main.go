@@ -22,11 +22,21 @@ func main() {
 
 	r := gin.Default()
 
-	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{"GET", "POST", "PUT", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "X-API-Key"},
-	}))
+	// Never trust client-sent forwarding headers unless explicitly configured.
+	if err := r.SetTrustedProxies(nil); err != nil {
+		log.Fatalf("failed to configure trusted proxies: %v", err)
+	}
+
+	if len(config.APICORSOrigins) > 0 {
+		r.Use(cors.New(cors.Config{
+			AllowOrigins: config.APICORSOrigins,
+			AllowMethods: []string{"GET", "POST", "PUT", "OPTIONS"},
+			AllowHeaders: []string{"Origin", "Content-Type", "Accept", "X-API-Key"},
+		}))
+		log.Printf("[SECURITY] CORS enabled for origins: %s", strings.Join(config.APICORSOrigins, ","))
+	} else {
+		log.Println("[SECURITY] CORS disabled (same-origin only)")
+	}
 
 	api := r.Group(config.APIBasePath, middleware.APIKeyAuth())
 	{

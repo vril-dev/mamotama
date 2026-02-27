@@ -1,5 +1,11 @@
-const API_BASE = import.meta.env.VITE_CORAZA_API_BASE || "/mamotama-api";
-const API_KEY = import.meta.env.VITE_API_KEY || "";
+type EnvLike = {
+    VITE_CORAZA_API_BASE?: string;
+    VITE_API_KEY?: string;
+};
+
+const env = ((import.meta as ImportMeta & { env?: EnvLike }).env ?? {});
+const API_BASE = env.VITE_CORAZA_API_BASE || "/mamotama-api";
+const API_KEY = env.VITE_API_KEY || "";
 
 function withKey(headers: Headers) {
     if (API_KEY) {

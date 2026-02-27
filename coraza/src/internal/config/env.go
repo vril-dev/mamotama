@@ -18,6 +18,7 @@ var (
 	APIKeyPrimary   string
 	APIKeySecondary string
 	APIAuthDisable  bool
+	APICORSOrigins  []string
 	CRSEnable       bool
 	CRSSetupFile    string
 	CRSRulesDir     string
@@ -49,6 +50,7 @@ func LoadEnv() {
 	APIKeyPrimary = strings.TrimSpace(os.Getenv("WAF_API_KEY_PRIMARY"))
 	APIKeySecondary = strings.TrimSpace(os.Getenv("WAF_API_KEY_SECONDARY"))
 	APIAuthDisable = isTruthy(os.Getenv("WAF_API_AUTH_DISABLE"))
+	APICORSOrigins = parseCSV(os.Getenv("WAF_API_CORS_ALLOWED_ORIGINS"))
 
 	CRSEnable = !isFalsy(os.Getenv("WAF_CRS_ENABLE"))
 	CRSSetupFile = strings.TrimSpace(os.Getenv("WAF_CRS_SETUP_FILE"))
@@ -120,4 +122,18 @@ func isFalsy(v string) bool {
 	default:
 		return false
 	}
+}
+
+func parseCSV(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		s := strings.TrimSpace(p)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+
+	return out
 }

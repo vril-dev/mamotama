@@ -40,3 +40,13 @@ func TestTruthyFalsy(t *testing.T) {
 		t.Fatal("isFalsy() returned true for truthy values")
 	}
 }
+
+func TestParseCSV(t *testing.T) {
+	got := parseCSV(" https://admin.example.com, http://localhost:5173 ,,")
+	if len(got) != 2 {
+		t.Fatalf("parseCSV() len=%d, want 2", len(got))
+	}
+	if got[0] != "https://admin.example.com" || got[1] != "http://localhost:5173" {
+		t.Fatalf("parseCSV() = %#v", got)
+	}
+}

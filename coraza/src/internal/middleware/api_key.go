@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 
@@ -21,10 +22,20 @@ func APIKeyAuth() gin.HandlerFunc {
 			return
 		}
 
-		if key == config.APIKeyPrimary || (config.APIKeySecondary != "" && key == config.APIKeySecondary) {
+		if secureKeyMatch(key, config.APIKeyPrimary) || secureKeyMatch(key, config.APIKeySecondary) {
 			c.Next()
 			return
 		}
 		c.AbortWithStatus(http.StatusUnauthorized)
 	}
+}
+
+func secureKeyMatch(got, expected string) bool {
+	if got == "" || expected == "" {
+		return false
+	}
+	if len(got) != len(expected) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(expected)) == 1
 }

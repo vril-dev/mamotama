@@ -66,6 +66,7 @@ Coraza + CRS WAFプロジェクト
 | `WAF_API_KEY_PRIMARY` | `…` | 管理API用の主キー（`X-API-Key`）。 |
 | `WAF_API_KEY_SECONDARY` | (空) | 予備キー（ローテーション時の切替用。未使用なら空でOK）。 |
 | `WAF_API_AUTH_DISABLE` | (空) | 認証無効化フラグ。運用では空（false相当）推奨。テストで無効化したいときのみ truthy 値。 |
+| `WAF_API_CORS_ALLOWED_ORIGINS` | `https://admin.example.com,http://localhost:5173` | CORSを許可する Origin 一覧（カンマ区切り）。未設定なら CORS 無効（同一オリジンのみ）。 |
 | `WAF_ALLOW_INSECURE_DEFAULTS` | (空) | 弱いAPIキーや認証無効化を許可する開発用フラグ。本番では設定しない。 |
 
 ### 管理UI（React / Vite）
@@ -273,6 +274,7 @@ DENY regex=^/users/[0-9]+/profile
 - Go側でルールに一致したレスポンスに `X-Mamotama-Cacheable` と `X-Accel-Expires` を付与
 - nginx がこれらのヘッダを元にキャッシュを管理
 - 認証付きリクエスト、Cookieあり、APIパスはデフォルトでキャッシュされません
+- `Set-Cookie` を含む上流レスポンスは保存されません（共有キャッシュ誤配信防止）
 
 ### 確認方法
 
