@@ -2,7 +2,7 @@
 
 Coraza + CRS WAFプロジェクト
 
-![管理画面トップ](docs/images/admin-dashboard.png)
+![管理画面トップ](docs/images/admin-rule-sets.png)
 
 ## 概要
 
@@ -15,8 +15,6 @@ Coraza + CRS WAFプロジェクト
 
 本リポジトリには、ライセンス順守のため OWASP CRS 本体は同梱していません。  
 代わりに、初期状態で動作可能な最小ベースルール `data/rules/mamotama.conf` を同梱しています。
-
-![管理画面 Rules](docs/images/admin-rules.png)
 
 ### セットアップ手順
 
@@ -56,6 +54,7 @@ Coraza + CRS WAFプロジェクト
 | `WAF_APP_URL` | `http://host.docker.internal:3000` | 透過先アプリの URL（ALB/ECS 等の本番では適宜変更）。 |
 | `WAF_LOG_FILE` | (空) | WAFログの出力先。未設定なら標準出力。 |
 | `WAF_BYPASS_FILE` | `conf/waf.bypass` | バイパス/特別ルール定義ファイルのパス。 |
+| `WAF_COUNTRY_BLOCK_FILE` | `conf/country-block.conf` | 国別ブロック定義ファイル（1行1国コード、例: `JP`, `US`, `UNKNOWN`）。 |
 | `WAF_RULES_FILE` | `rules/mamotama.conf` | 使用するルールファイル（カンマ区切りで複数指定も可）。 |
 | `WAF_CRS_ENABLE` | `true` | CRSを読み込むかどうか。`false` ならベースルールのみ。 |
 | `WAF_CRS_SETUP_FILE` | `rules/crs/crs-setup.conf` | CRSセットアップ設定ファイル。 |
@@ -97,6 +96,7 @@ Coraza + CRS WAFプロジェクト
 | `/rules` | 使用中のルールファイルの一覧表示 |
 | `/rule-sets` | CRS本体ルール（`rules/crs/rules/*.conf`）の有効/無効切替 |
 | `/bypass` | バイパス設定の閲覧・編集（waf.bypassを直接操作） |
+| `/country-block` | 国別ブロック設定の閲覧・編集（country-block.conf を直接操作） |
 | `/cache-rules` | Cache Rules の可視化・編集（cache.conf の表編集／Raw編集、Validate/Save対応） |
 
 ### ライブラリ
@@ -130,7 +130,7 @@ docker compose up -d coraza openresty
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/mamotama-api/status` | 現在のWAF設定状態を取得 |
-| GET | `/mamotama-api/logs/read` | WAFログ（tail）を取得 |
+| GET | `/mamotama-api/logs/read` | WAFログ（tail）を取得（`country` クエリで国別フィルタ可） |
 | GET | `/mamotama-api/logs/download` | 3種類のログファイル（`waf` / `accerr` / `intr`）をZIPでまとめてダウンロード |
 | GET | `/mamotama-api/rules` | ルールファイル一覧を取得（複数対応） |
 | POST | `/mamotama-api/rules:validate` | 指定ルールファイルの構文検証（保存なし） |
@@ -141,6 +141,9 @@ docker compose up -d coraza openresty
 | GET | `/mamotama-api/bypass-rules` | バイパス設定ファイルの内容を取得 |
 | POST | `/mamotama-api/bypass-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
 | PUT | `/mamotama-api/bypass-rules` | バイパス設定ファイルを上書き保存（`If-Match` に `ETag` を指定して楽観ロック） |
+| GET  | `/mamotama-api/country-block-rules` | 国別ブロック設定ファイルの内容を取得 |
+| POST | `/mamotama-api/country-block-rules:validate` | 国別ブロック設定の構文検証のみ（保存なし） |
+| PUT  | `/mamotama-api/country-block-rules` | 国別ブロック設定ファイルを保存（`If-Match` に `ETag` を指定して楽観ロック） |
 | GET  | `/mamotama-api/cache-rules` | cache.conf の現在内容（Raw + 構造化）と `ETag` を返す |
 | POST | `/mamotama-api/cache-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
 | PUT | `/mamotama-api/cache-rules` | cache.conf を保存（`If-Match` に `ETag` を指定して楽観ロック） |
@@ -153,8 +156,6 @@ docker compose up -d coraza openresty
 ## WAFバイパス・特別ルール設定について
 
 mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して除外（バイパス）したり、特定のルールのみを適用する機能を備えています。
-
-![管理画面 Bypass Rules](docs/images/admin-bypass-rules.png)
 
 ### バイパスファイルの指定
 
@@ -178,6 +179,12 @@ mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して
 
 管理ダッシュボード `/bypass` 画面から、`waf.bypass` ファイルの内容を直接編集・保存できます。
 この画面では、全体の設定内容をテキスト形式で表示・編集し、保存ボタンで即時適用できます。
+
+### 国別ブロック設定
+
+管理ダッシュボード `/country-block` から、`WAF_COUNTRY_BLOCK_FILE`（既定: `conf/country-block.conf`）を編集できます。  
+1行に1つの国コードを記述します（例: `JP`, `US`, `UNKNOWN`）。  
+該当する国コードのアクセスは WAF 前段で `403` になります。
 
 ### ルールファイル編集（複数対応）
 
@@ -219,22 +226,20 @@ mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して
 
 ```bash
 curl -s -H "X-API-Key: <your-api-key>" \
-     "http://<host>/mamotama-api/logs?src=waf&tail=100" | jq .
+     "http://<host>/mamotama-api/logs/read?src=waf&tail=100&country=JP" | jq .
 ```
 
 * src: ログ種別 (waf, accerr, intr)
 * tail: 取得件数
+* country: 国コード（例: `JP`, `US`, `UNKNOWN`。未指定または`ALL`で全件）
+  * Cloudflare配下では `CF-IPCountry` ヘッダを利用します。未取得時は `UNKNOWN` になります。
 
 API キーは .env で設定した API_KEY を使用してください。
 実運用環境ではアクセス制限や認証を必ず設定してください。
 
-![管理画面 Logs](docs/images/admin-logs.png)
-
 ## キャッシュ機能
 
 キャッシュ対象のパスやTTLを動的に設定できる機能を追加しました。
-
-![管理画面 Cash Rules](docs/images/admin-cache-rules.png)
 
 ### 設定ファイル
 キャッシュ設定は `/data/conf/cache.conf` に記述します。  

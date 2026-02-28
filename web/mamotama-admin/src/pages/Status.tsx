@@ -8,7 +8,10 @@ export default function Status() {
     useEffect(() => {
         apiGetJson("/status")
             .then(setData)
-            .catch((err) => setError(err.message));
+            .catch((err: unknown) => {
+                const message = err instanceof Error ? err.message : String(err);
+                setError(message);
+            });
     }, []);
 
     if (error) {

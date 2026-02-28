@@ -9,20 +9,21 @@ import (
 )
 
 var (
-	AppURL          string
-	RulesFile       string
-	BypassFile      string
-	LogFile         string
-	StrictOverride  bool
-	APIBasePath     string
-	APIKeyPrimary   string
-	APIKeySecondary string
-	APIAuthDisable  bool
-	APICORSOrigins  []string
-	CRSEnable       bool
-	CRSSetupFile    string
-	CRSRulesDir     string
-	CRSDisabledFile string
+	AppURL           string
+	RulesFile        string
+	BypassFile       string
+	CountryBlockFile string
+	LogFile          string
+	StrictOverride   bool
+	APIBasePath      string
+	APIKeyPrimary    string
+	APIKeySecondary  string
+	APIAuthDisable   bool
+	APICORSOrigins   []string
+	CRSEnable        bool
+	CRSSetupFile     string
+	CRSRulesDir      string
+	CRSDisabledFile  string
 
 	AllowInsecureDefaults bool
 )
@@ -33,6 +34,10 @@ func LoadEnv() {
 	AppURL = os.Getenv("WAF_APP_URL")
 	RulesFile = os.Getenv("WAF_RULES_FILE")
 	BypassFile = os.Getenv("WAF_BYPASS_FILE")
+	CountryBlockFile = strings.TrimSpace(os.Getenv("WAF_COUNTRY_BLOCK_FILE"))
+	if CountryBlockFile == "" {
+		CountryBlockFile = "conf/country-block.conf"
+	}
 	LogFile = os.Getenv("WAF_LOG_FILE")
 	StrictOverride = os.Getenv("WAF_STRICT_OVERRIDE") == "true"
 

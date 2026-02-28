@@ -30,6 +30,7 @@ const (
 	ctxKeyWafHit  ctxKey = "waf_hit"
 	ctxKeyWafRule ctxKey = "waf_rules"
 	ctxKeyIP      ctxKey = "client_ip"
+	ctxKeyCountry ctxKey = "country"
 )
 
 var proxy *httputil.ReverseProxy
@@ -71,6 +72,7 @@ func annotateWAFHit(res *http.Response) {
 
 	reqID, _ := ctx.Value(ctxKeyReqID).(string)
 	ip, _ := ctx.Value(ctxKeyIP).(string)
+	country, _ := ctx.Value(ctxKeyCountry).(string)
 	path := res.Request.URL.Path
 	status := res.StatusCode
 	emitJSONLog(map[string]any{
@@ -80,6 +82,7 @@ func annotateWAFHit(res *http.Response) {
 		"event":   "waf_hit_allow",
 		"req_id":  reqID,
 		"ip":      ip,
+		"country": country,
 		"path":    path,
 		"rules":   res.Header.Get("X-WAF-RuleIDs"),
 		"status":  status,
@@ -146,9 +149,10 @@ func selectWAFEngine(reqPath string) coraza.WAF {
 	}
 }
 
-func setWAFContext(c *gin.Context, reqID string, wafHit bool, ruleIDs string) {
+func setWAFContext(c *gin.Context, reqID, country string, wafHit bool, ruleIDs string) {
 	ctx := context.WithValue(c.Request.Context(), ctxKeyReqID, reqID)
 	ctx = context.WithValue(ctx, ctxKeyIP, c.ClientIP())
+	ctx = context.WithValue(ctx, ctxKeyCountry, country)
 	ctx = context.WithValue(ctx, ctxKeyWafHit, wafHit)
 	ctx = context.WithValue(ctx, ctxKeyWafRule, ruleIDs)
 	c.Request = c.Request.WithContext(ctx)
@@ -158,6 +162,25 @@ func ProxyHandler(c *gin.Context) {
 	ensureProxy()
 
 	reqID := ensureRequestID(c)
+	country := normalizeCountryCode(c.GetHeader("X-Country-Code"))
+
+	if IsCountryBlocked(country) {
+		evt := map[string]any{
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			"service": "coraza",
+			"level":   "WARN",
+			"event":   "country_block",
+			"req_id":  reqID,
+			"ip":      c.ClientIP(),
+			"country": country,
+			"path":    c.Request.URL.Path,
+			"status":  http.StatusForbidden,
+		}
+		emitJSONLog(evt)
+		_ = appendEventToFile(evt)
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
 
 	reqPath := c.Request.URL.Path
 	wafEngine := selectWAFEngine(reqPath)
@@ -192,7 +215,7 @@ func ProxyHandler(c *gin.Context) {
 		}
 	}
 
-	setWAFContext(c, reqID, wafHit, strings.Join(unique(ruleIDs), ","))
+	setWAFContext(c, reqID, country, wafHit, strings.Join(unique(ruleIDs), ","))
 
 	if it := tx.Interruption(); it != nil {
 		evt := map[string]any{
@@ -200,7 +223,7 @@ func ProxyHandler(c *gin.Context) {
 			"service": "coraza",
 			"level":   "WARN",
 			"event":   "waf_block",
-			"req_id":  reqID, "ip": c.ClientIP(), "path": c.Request.URL.Path,
+			"req_id":  reqID, "ip": c.ClientIP(), "country": country, "path": c.Request.URL.Path,
 			"rule_id": it.RuleID, "status": it.Status,
 		}
 		emitJSONLog(evt)

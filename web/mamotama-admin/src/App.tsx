@@ -6,6 +6,7 @@ import Rules from './pages/Rules';
 import RuleSets from './pages/RuleSets';
 import CacheRulePanel from './pages/CacheRulesPanel';
 import BypassRulesPanel from './pages/BypassRulesPanel';
+import CountryBlockPanel from './pages/CountryBlockPanel';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="rules" element={<Rules />} />
           <Route path="rule-sets" element={<RuleSets />} />
           <Route path="bypass" element={<BypassRulesPanel />} />
+          <Route path="country-block" element={<CountryBlockPanel />} />
           <Route path="cache" element={<CacheRulePanel />} />
         </Route>
       </Routes>

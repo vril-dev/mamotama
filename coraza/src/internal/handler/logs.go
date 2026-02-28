@@ -49,6 +49,8 @@ var (
 type readResp struct {
 	Lines      []logLine `json:"lines"`
 	NextCursor *int64    `json:"next_cursor,omitempty"`
+	PageStart  *int64    `json:"page_start,omitempty"`
+	PageEnd    *int64    `json:"page_end,omitempty"`
 	HasMore    bool      `json:"has_more"`
 	HasPrev    bool      `json:"has_prev"`
 	HasNext    bool      `json:"has_next"`
@@ -69,6 +71,7 @@ func LogsRead(c *gin.Context) {
 		off := mustAtoi64Default(v, 0)
 		cursor = &off
 	}
+	countryFilter := normalizeCountryFilter(c.Query("country"))
 
 	lines, nextCur, hasPrev, hasNext, err := readByLine(path, tail, cursor, dir)
 	if err != nil {
@@ -81,9 +84,15 @@ func LogsRead(c *gin.Context) {
 		return
 	}
 
+	normalizeCountryInLines(lines)
+	pageStart, pageEnd := computePageBounds(dir, nextCur, len(lines))
+	lines = filterLinesByCountry(lines, countryFilter)
+
 	resp := readResp{
 		Lines:      lines,
 		NextCursor: nextCur,
+		PageStart:  pageStart,
+		PageEnd:    pageEnd,
 		HasPrev:    hasPrev,
 		HasNext:    hasNext,
 	}
@@ -132,6 +141,7 @@ func LogsDownload(c *gin.Context) {
 	if toStr == "" {
 		to = time.Now().Add(1 * time.Second)
 	}
+	countryFilter := normalizeCountryFilter(c.Query("country"))
 
 	c.Header("Content-Type", "application/x-ndjson")
 	filename := fmt.Sprintf("%s-%s.ndjson.gz", src, time.Now().Format("20060102"))
@@ -155,7 +165,7 @@ func LogsDownload(c *gin.Context) {
 		if len(b) > 0 {
 			var m map[string]any
 			if json.Unmarshal(b, &m) == nil {
-				if ts, ok := m["ts"].(string); ok && tsInRange(ts, from, to) {
+				if ts, ok := m["ts"].(string); ok && tsInRange(ts, from, to) && countryMatchesFilter(m["country"], countryFilter) {
 					if _, err := gw.Write(b); err != nil {
 						break
 					}
@@ -440,6 +450,45 @@ func tsInRange(ts string, from, to time.Time) bool {
 	}
 
 	return true
+}
+
+func filterLinesByCountry(lines []logLine, filter string) []logLine {
+	if filter == "" {
+		return lines
+	}
+
+	out := make([]logLine, 0, len(lines))
+	for _, line := range lines {
+		if countryMatchesFilter(line["country"], filter) {
+			out = append(out, line)
+		}
+	}
+
+	return out
+}
+
+func normalizeCountryInLines(lines []logLine) {
+	for _, line := range lines {
+		line["country"] = normalizeCountryFromAny(line["country"])
+	}
+}
+
+func computePageBounds(dir string, nextCur *int64, lineCount int) (*int64, *int64) {
+	if nextCur == nil {
+		return nil, nil
+	}
+
+	n := int64(lineCount)
+	switch dir {
+	case "prev":
+		start := *nextCur
+		end := start + n
+		return &start, &end
+	default:
+		end := *nextCur
+		start := max64(0, end-n)
+		return &start, &end
+	}
 }
 
 func bytesSplitKeep(b []byte, sep byte) [][]byte {

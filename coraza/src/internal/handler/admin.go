@@ -18,6 +18,8 @@ func StatusHandler(c *gin.Context) {
 		"status":                  "running",
 		"rules_file":              config.RulesFile,
 		"bypass_file":             config.BypassFile,
+		"country_block_file":      config.CountryBlockFile,
+		"blocked_countries":       GetBlockedCountries(),
 		"log_file":                config.LogFile,
 		"strict_mode":             config.StrictOverride,
 		"api_base":                config.APIBasePath,

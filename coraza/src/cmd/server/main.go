@@ -17,6 +17,11 @@ import (
 func main() {
 	config.LoadEnv()
 	waf.InitWAF()
+	if err := handler.InitCountryBlock(config.CountryBlockFile); err != nil {
+		log.Printf("[COUNTRY_BLOCK][INIT][ERR] %v (path=%s)", err, config.CountryBlockFile)
+	} else {
+		log.Printf("[COUNTRY_BLOCK][INIT] loaded %d countries", len(handler.GetBlockedCountries()))
+	}
 
 	log.Println("[INFO] WAF upstream target:", config.AppURL)
 
@@ -50,6 +55,7 @@ func main() {
 					config.APIBasePath + "/crs-rule-sets",
 					config.APIBasePath + "/bypass-rules",
 					config.APIBasePath + "/cache-rules",
+					config.APIBasePath + "/country-block-rules",
 					config.APIBasePath + "/logs/read",
 					config.APIBasePath + "/logs/download",
 				},
@@ -71,6 +77,9 @@ func main() {
 		api.GET("/cache-rules", handler.GetCacheRules)
 		api.POST("/cache-rules:validate", handler.ValidateCacheRules)
 		api.PUT("/cache-rules", handler.PutCacheRules)
+		api.GET("/country-block-rules", handler.GetCountryBlockRules)
+		api.POST("/country-block-rules:validate", handler.ValidateCountryBlockRules)
+		api.PUT("/country-block-rules", handler.PutCountryBlockRules)
 	}
 
 	r.NoRoute(func(c *gin.Context) {
