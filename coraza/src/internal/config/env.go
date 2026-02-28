@@ -13,6 +13,7 @@ var (
 	RulesFile        string
 	BypassFile       string
 	CountryBlockFile string
+	RateLimitFile    string
 	LogFile          string
 	StrictOverride   bool
 	APIBasePath      string
@@ -37,6 +38,10 @@ func LoadEnv() {
 	CountryBlockFile = strings.TrimSpace(os.Getenv("WAF_COUNTRY_BLOCK_FILE"))
 	if CountryBlockFile == "" {
 		CountryBlockFile = "conf/country-block.conf"
+	}
+	RateLimitFile = strings.TrimSpace(os.Getenv("WAF_RATE_LIMIT_FILE"))
+	if RateLimitFile == "" {
+		RateLimitFile = "conf/rate-limit.conf"
 	}
 	LogFile = os.Getenv("WAF_LOG_FILE")
 	StrictOverride = os.Getenv("WAF_STRICT_OVERRIDE") == "true"

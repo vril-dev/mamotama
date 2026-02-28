@@ -7,6 +7,7 @@ import RuleSets from './pages/RuleSets';
 import CacheRulePanel from './pages/CacheRulesPanel';
 import BypassRulesPanel from './pages/BypassRulesPanel';
 import CountryBlockPanel from './pages/CountryBlockPanel';
+import RateLimitPanel from './pages/RateLimitPanel';
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
           <Route path="rule-sets" element={<RuleSets />} />
           <Route path="bypass" element={<BypassRulesPanel />} />
           <Route path="country-block" element={<CountryBlockPanel />} />
+          <Route path="rate-limit" element={<RateLimitPanel />} />
           <Route path="cache" element={<CacheRulePanel />} />
         </Route>
       </Routes>

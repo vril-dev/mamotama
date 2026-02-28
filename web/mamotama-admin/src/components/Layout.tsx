@@ -14,6 +14,7 @@ export default function Layout() {
           <Link to="/rule-sets" className={pathname === '/rule-sets' ? 'font-bold' : ''}>Rule Sets</Link>
           <Link to="/bypass" className={pathname === '/bypass' ? 'font-bold' : ''}>Bypass Rules</Link>
           <Link to="/country-block" className={pathname === '/country-block' ? 'font-bold' : ''}>Country Block</Link>
+          <Link to="/rate-limit" className={pathname === '/rate-limit' ? 'font-bold' : ''}>Rate Limit</Link>
           <Link to="/cache" className={pathname === '/cache' ? 'font-bold' : ''}>Cache Rules</Link>
         </nav>
       </aside>

@@ -55,6 +55,7 @@ Coraza + CRS WAFプロジェクト
 | `WAF_LOG_FILE` | (空) | WAFログの出力先。未設定なら標準出力。 |
 | `WAF_BYPASS_FILE` | `conf/waf.bypass` | バイパス/特別ルール定義ファイルのパス。 |
 | `WAF_COUNTRY_BLOCK_FILE` | `conf/country-block.conf` | 国別ブロック定義ファイル（1行1国コード、例: `JP`, `US`, `UNKNOWN`）。 |
+| `WAF_RATE_LIMIT_FILE` | `conf/rate-limit.conf` | レート制限定義ファイル（JSON）。管理画面から編集可能。 |
 | `WAF_RULES_FILE` | `rules/mamotama.conf` | 使用するルールファイル（カンマ区切りで複数指定も可）。 |
 | `WAF_CRS_ENABLE` | `true` | CRSを読み込むかどうか。`false` ならベースルールのみ。 |
 | `WAF_CRS_SETUP_FILE` | `rules/crs/crs-setup.conf` | CRSセットアップ設定ファイル。 |
@@ -97,6 +98,7 @@ Coraza + CRS WAFプロジェクト
 | `/rule-sets` | CRS本体ルール（`rules/crs/rules/*.conf`）の有効/無効切替 |
 | `/bypass` | バイパス設定の閲覧・編集（waf.bypassを直接操作） |
 | `/country-block` | 国別ブロック設定の閲覧・編集（country-block.conf を直接操作） |
+| `/rate-limit` | レート制限設定の閲覧・編集（rate-limit.conf を直接操作） |
 | `/cache-rules` | Cache Rules の可視化・編集（cache.conf の表編集／Raw編集、Validate/Save対応） |
 
 ### ライブラリ
@@ -144,6 +146,9 @@ docker compose up -d coraza openresty
 | GET  | `/mamotama-api/country-block-rules` | 国別ブロック設定ファイルの内容を取得 |
 | POST | `/mamotama-api/country-block-rules:validate` | 国別ブロック設定の構文検証のみ（保存なし） |
 | PUT  | `/mamotama-api/country-block-rules` | 国別ブロック設定ファイルを保存（`If-Match` に `ETag` を指定して楽観ロック） |
+| GET  | `/mamotama-api/rate-limit-rules` | レート制限設定ファイルの内容を取得 |
+| POST | `/mamotama-api/rate-limit-rules:validate` | レート制限設定の構文検証のみ（保存なし） |
+| PUT  | `/mamotama-api/rate-limit-rules` | レート制限設定ファイルを保存（`If-Match` に `ETag` を指定して楽観ロック） |
 | GET  | `/mamotama-api/cache-rules` | cache.conf の現在内容（Raw + 構造化）と `ETag` を返す |
 | POST | `/mamotama-api/cache-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
 | PUT | `/mamotama-api/cache-rules` | cache.conf を保存（`If-Match` に `ETag` を指定して楽観ロック） |
@@ -185,6 +190,40 @@ mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して
 管理ダッシュボード `/country-block` から、`WAF_COUNTRY_BLOCK_FILE`（既定: `conf/country-block.conf`）を編集できます。  
 1行に1つの国コードを記述します（例: `JP`, `US`, `UNKNOWN`）。  
 該当する国コードのアクセスは WAF 前段で `403` になります。
+
+### レート制限設定
+
+管理ダッシュボード `/rate-limit` から、`WAF_RATE_LIMIT_FILE`（既定: `conf/rate-limit.conf`）を編集できます。  
+設定は JSON 形式で、`default_policy` と `rules` を管理します。  
+超過時は `action.status`（通常 `429`）を返し、`Retry-After` ヘッダを付与します。
+
+#### JSONパラメータ早見表（何を変えるとどうなるか）
+
+| パラメータ | 例 | 影響 |
+| --- | --- | --- |
+| `enabled` | `true` / `false` | レート制限全体の有効/無効。`false` なら全リクエストを素通し。 |
+| `allowlist_ips` | `["127.0.0.1/32", "10.0.0.5"]` | 一致IPは常に制限対象外。CIDRと単体IPの両方を指定可。 |
+| `allowlist_countries` | `["JP", "US"]` | 一致国コードは常に制限対象外。 |
+| `default_policy.enabled` | `true` | デフォルトポリシー自体の有効/無効。 |
+| `default_policy.limit` | `120` | ウィンドウ期間内の基本許可回数。 |
+| `default_policy.burst` | `20` | `limit` に上乗せする瞬間許容量。実効上限は `limit + burst`。 |
+| `default_policy.window_seconds` | `60` | カウント窓の秒数。短いほど厳密、長いほど緩やか。 |
+| `default_policy.key_by` | `"ip"` | 集計キー。`ip` / `country` / `ip_country`。 |
+| `default_policy.action.status` | `429` | 超過時のHTTPステータス。`4xx/5xx`のみ。 |
+| `default_policy.action.retry_after_seconds` | `60` | `Retry-After` ヘッダ秒数。`0` なら次ウィンドウまでの残秒を自動計算。 |
+| `rules[]` | 下記参照 | 条件一致時に `default_policy` より優先して適用。先頭から順に評価。 |
+| `rules[].match_type` | `"prefix"` | ルールの一致方式。`exact` / `prefix` / `regex`。 |
+| `rules[].match_value` | `"/login"` | 一致対象。`match_type` に応じて完全一致/前方一致/正規表現。 |
+| `rules[].methods` | `["POST"]` | 対象メソッド限定。空なら全メソッド対象。 |
+| `rules[].policy.*` |  | ルール一致時に使う制限値（`default_policy` と同じ意味）。 |
+
+#### 運用でよくやる調整
+
+- 全体を一時停止したい: `enabled=false`
+- 短時間スパイクに強くしたい: `burst` を増やす
+- ログインだけ厳しくしたい: `rules` に `match_type=prefix`, `match_value=/login`, `methods=["POST"]` を追加
+- 同一IP内で国別に分けたい: `key_by="ip_country"`
+- 特定拠点を除外したい: `allowlist_ips` または `allowlist_countries` に追加
 
 ### ルールファイル編集（複数対応）
 

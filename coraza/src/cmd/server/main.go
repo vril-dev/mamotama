@@ -22,6 +22,11 @@ func main() {
 	} else {
 		log.Printf("[COUNTRY_BLOCK][INIT] loaded %d countries", len(handler.GetBlockedCountries()))
 	}
+	if err := handler.InitRateLimit(config.RateLimitFile); err != nil {
+		log.Printf("[RATE_LIMIT][INIT][ERR] %v (path=%s)", err, config.RateLimitFile)
+	} else {
+		log.Printf("[RATE_LIMIT][INIT] loaded")
+	}
 
 	log.Println("[INFO] WAF upstream target:", config.AppURL)
 
@@ -56,6 +61,7 @@ func main() {
 					config.APIBasePath + "/bypass-rules",
 					config.APIBasePath + "/cache-rules",
 					config.APIBasePath + "/country-block-rules",
+					config.APIBasePath + "/rate-limit-rules",
 					config.APIBasePath + "/logs/read",
 					config.APIBasePath + "/logs/download",
 				},
@@ -80,6 +86,9 @@ func main() {
 		api.GET("/country-block-rules", handler.GetCountryBlockRules)
 		api.POST("/country-block-rules:validate", handler.ValidateCountryBlockRules)
 		api.PUT("/country-block-rules", handler.PutCountryBlockRules)
+		api.GET("/rate-limit-rules", handler.GetRateLimitRules)
+		api.POST("/rate-limit-rules:validate", handler.ValidateRateLimitRules)
+		api.PUT("/rate-limit-rules", handler.PutRateLimitRules)
 	}
 
 	r.NoRoute(func(c *gin.Context) {
