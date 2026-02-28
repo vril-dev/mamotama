@@ -143,7 +143,7 @@ export default function Rules() {
                 { headers: active.etag ? { "If-Match": active.etag } : {} }
             );
             if (!js.ok) {
-                throw new Error("保存に失敗しました");
+                throw new Error("Failed to save");
             }
             setActive({
                 etag: js.etag ?? null,
@@ -180,11 +180,11 @@ export default function Rules() {
         return <div className="text-red-500">Error: {error}</div>;
     }
     if (!active) {
-        return <div className="text-gray-500">ルールファイルが設定されていません。</div>;
+        return <div className="text-gray-500">No rule files configured.</div>;
     }
 
     return (
-        <div className="w-full max-w-5xl mx-auto p-4 space-y-4">
+        <div className="w-full p-4 space-y-4">
             <header className="flex items-center justify-between">
                 <h1 className="text-xl font-semibold">Rules</h1>
                 <div className="flex items-center gap-2">
@@ -195,7 +195,7 @@ export default function Rules() {
             </header>
 
             <div className="flex items-center gap-2">
-                <label className="text-sm text-neutral-600">編集対象</label>
+                <label className="text-sm text-neutral-600">Edit target</label>
                 <select
                     className="border rounded px-2 py-1 text-sm min-w-[360px]"
                     value={selectedPath}
@@ -211,7 +211,7 @@ export default function Rules() {
                     onClick={() => void load()}
                     disabled={loading}
                 >
-                    最新を取得
+                    Refresh
                 </button>
                 <button
                     type="button"
@@ -220,13 +220,13 @@ export default function Rules() {
                     disabled={saving || !dirty || !!active.loadError}
                     title="Ctrl/Cmd+S"
                 >
-                    {saving ? "保存中…" : "保存してホットリロード"}
+                    {saving ? "Saving..." : "Save & hot reload"}
                 </button>
             </div>
 
             {active.loadError && (
                 <div className="border border-red-300 bg-red-50 rounded-xl p-3 text-sm">
-                    読み込み失敗: {active.loadError}
+                    Load failed: {active.loadError}
                 </div>
             )}
 
@@ -240,9 +240,9 @@ export default function Rules() {
 
             <div className="flex items-center justify-between text-xs text-neutral-500">
                 <div className="flex items-center gap-3">
-                    <span>行数: {active.raw ? active.raw.split(/\n/).length : 0}</span>
-                    <span>文字数: {active.raw.length}</span>
-                    {active.lastSavedAt && <span>最終保存: {new Date(active.lastSavedAt).toLocaleString()}</span>}
+                    <span>Lines: {active.raw ? active.raw.split(/\n/).length : 0}</span>
+                    <span>Chars: {active.raw.length}</span>
+                    {active.lastSavedAt && <span>Last saved: {new Date(active.lastSavedAt).toLocaleString()}</span>}
                 </div>
                 <div className="flex items-center gap-2">
                     {active.messages.slice(0, 3).map((m, i) => (
