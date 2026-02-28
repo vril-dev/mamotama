@@ -87,7 +87,7 @@ export default function RateLimitPanel() {
                 { headers: etag ? { "If-Match": etag } : {} }
             );
             if (!js.ok) {
-                throw new Error("保存に失敗しました");
+                throw new Error("Failed to save");
             }
 
             setEtag(js.etag ?? null);
@@ -130,7 +130,7 @@ export default function RateLimitPanel() {
     }, [loading, valid]);
 
     return (
-        <div className="w-full max-w-5xl mx-auto p-4 space-y-4">
+        <div className="w-full p-4 space-y-4">
             <header className="flex items-center justify-between">
                 <h1 className="text-xl font-semibold">Rate Limit</h1>
                 <div className="flex items-center gap-2">
@@ -142,13 +142,13 @@ export default function RateLimitPanel() {
             </header>
 
             {error && (
-                <Alert kind="error" title="エラー" message={error} onClose={() => setError(null)} />
+                <Alert kind="error" title="Error" message={error} onClose={() => setError(null)} />
             )}
 
             <div className="grid gap-3">
                 <div className="flex items-center justify-between gap-2">
                     <div className="text-sm text-neutral-500">
-                        JSONでレート制限を管理します。`default_policy` と `rules` をすべてこの画面から編集可能です。
+                        Manage rate-limit settings in JSON. You can edit both `default_policy` and `rules` on this panel.
                     </div>
                     <div className="flex items-center gap-2">
                         <button
@@ -157,7 +157,7 @@ export default function RateLimitPanel() {
                             onClick={() => setRaw((prev) => (prev ? prev : defaultRateLimitExample))}
                             disabled={loading}
                         >
-                            例を挿入
+                            Insert example
                         </button>
                         <button
                             type="button"
@@ -165,7 +165,7 @@ export default function RateLimitPanel() {
                             onClick={() => void load()}
                             disabled={loading}
                         >
-                            最新を取得
+                            Refresh
                         </button>
                         <button
                             type="button"
@@ -174,7 +174,7 @@ export default function RateLimitPanel() {
                             disabled={loading || saving || !dirty}
                             title="Ctrl/Cmd+S"
                         >
-                            {saving ? "保存中…" : "保存"}
+                            {saving ? "Saving..." : "Save"}
                         </button>
                     </div>
                 </div>
@@ -188,9 +188,9 @@ export default function RateLimitPanel() {
 
                 <div className="flex items-center justify-between text-xs text-neutral-500">
                     <div className="flex items-center gap-3">
-                        <span>行数: {lineCount}</span>
-                        <span>ルール数: {ruleCount}</span>
-                        {lastSavedAt && <span>最終保存: {new Date(lastSavedAt).toLocaleString()}</span>}
+                        <span>Lines: {lineCount}</span>
+                        <span>Rules: {ruleCount}</span>
+                        {lastSavedAt && <span>Last saved: {new Date(lastSavedAt).toLocaleString()}</span>}
                     </div>
                     <div className="flex items-center gap-2 max-w-[60%] overflow-hidden">
                         {messages.slice(0, 3).map((m, i) => (
@@ -268,9 +268,8 @@ function Alert({ kind, title, message, onClose }: { kind: "error" | "info"; titl
             <div className="font-semibold">{title}</div>
             <div className="flex-1 whitespace-pre-wrap">{message}</div>
             {onClose && (
-                <button className="text-xs text-neutral-500 hover:underline" onClick={onClose}>閉じる</button>
+                <button className="text-xs text-neutral-500 hover:underline" onClick={onClose}>Close</button>
             )}
         </div>
     );
 }
-

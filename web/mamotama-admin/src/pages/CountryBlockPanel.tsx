@@ -83,7 +83,7 @@ export default function CountryBlockPanel() {
                 { headers: etag ? { "If-Match": etag } : {} }
             );
             if (!js.ok) {
-                throw new Error("保存に失敗しました");
+                throw new Error("Failed to save");
             }
             setEtag(js.etag ?? null);
             setServerRaw(raw);
@@ -126,7 +126,7 @@ export default function CountryBlockPanel() {
     }, [loading, valid]);
 
     return (
-        <div className="w-full max-w-5xl mx-auto p-4 space-y-4">
+        <div className="w-full p-4 space-y-4">
             <header className="flex items-center justify-between">
                 <h1 className="text-xl font-semibold">Country Block</h1>
                 <div className="flex items-center gap-2">
@@ -137,13 +137,13 @@ export default function CountryBlockPanel() {
             </header>
 
             {error && (
-                <Alert kind="error" title="エラー" message={error} onClose={() => setError(null)} />
+                <Alert kind="error" title="Error" message={error} onClose={() => setError(null)} />
             )}
 
             <div className="grid gap-3">
                 <div className="flex items-center justify-between gap-2">
                     <div className="text-sm text-neutral-500">
-                        1行につき国コード1つ: <code className="px-1 bg-neutral-100 rounded">JP</code>
+                        One country code per line: <code className="px-1 bg-neutral-100 rounded">JP</code>
                         <code className="ml-1 px-1 bg-neutral-100 rounded">US</code>
                         <code className="ml-1 px-1 bg-neutral-100 rounded">UNKNOWN</code>
                     </div>
@@ -154,7 +154,7 @@ export default function CountryBlockPanel() {
                             onClick={() => setRaw((prev) => (prev ? `${prev}\nJP\nUS` : "JP\nUS"))}
                             disabled={loading}
                         >
-                            例を挿入
+                            Insert example
                         </button>
                         <button
                             type="button"
@@ -162,7 +162,7 @@ export default function CountryBlockPanel() {
                             onClick={() => void load()}
                             disabled={loading}
                         >
-                            最新を取得
+                            Refresh
                         </button>
                         <button
                             type="button"
@@ -171,7 +171,7 @@ export default function CountryBlockPanel() {
                             disabled={loading || saving || !dirty}
                             title="Ctrl/Cmd+S"
                         >
-                            {saving ? "保存中…" : "保存"}
+                            {saving ? "Saving..." : "Save"}
                         </button>
                     </div>
                 </div>
@@ -186,9 +186,9 @@ export default function CountryBlockPanel() {
 
                 <div className="flex items-center justify-between text-xs text-neutral-500">
                     <div className="flex items-center gap-3">
-                        <span>行数: {lineCount}</span>
-                        <span>ブロック国数: {blocked.length}</span>
-                        {lastSavedAt && <span>最終保存: {new Date(lastSavedAt).toLocaleString()}</span>}
+                        <span>Lines: {lineCount}</span>
+                        <span>Blocked countries: {blocked.length}</span>
+                        {lastSavedAt && <span>Last saved: {new Date(lastSavedAt).toLocaleString()}</span>}
                     </div>
                     <div className="flex items-center gap-2 max-w-[60%] overflow-hidden">
                         {messages.slice(0, 2).map((m, i) => (
@@ -235,7 +235,7 @@ function Alert({ kind, title, message, onClose }: { kind: "error" | "info"; titl
             <div className="font-semibold">{title}</div>
             <div className="flex-1 whitespace-pre-wrap">{message}</div>
             {onClose && (
-                <button className="text-xs text-neutral-500 hover:underline" onClick={onClose}>閉じる</button>
+                <button className="text-xs text-neutral-500 hover:underline" onClick={onClose}>Close</button>
             )}
         </div>
     );

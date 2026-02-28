@@ -1,25 +1,67 @@
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation } from "react-router-dom";
+
+type NavItem = {
+  to: string;
+  label: string;
+  hint: string;
+};
+
+const navItems: NavItem[] = [
+  { to: "/status", label: "Status", hint: "runtime health" },
+  { to: "/logs", label: "Logs", hint: "events and traces" },
+  { to: "/rules", label: "Rules", hint: "base directives" },
+  { to: "/rule-sets", label: "Rule Sets", hint: "CRS toggles" },
+  { to: "/bypass", label: "Bypass Rules", hint: "path overrides" },
+  { to: "/country-block", label: "Country Block", hint: "country deny list" },
+  { to: "/rate-limit", label: "Rate Limit", hint: "traffic policies" },
+  { to: "/cache", label: "Cache Rules", hint: "edge cache behavior" },
+];
+
+function isActive(pathname: string, to: string) {
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
 
 export default function Layout() {
   const { pathname } = useLocation();
+  const current = navItems.find((item) => isActive(pathname, item.to));
 
   return (
-    <div className="flex h-screen">
-      <aside className="w-64 bg-gray-800 text-white p-4 space-y-4">
-        <h2 className="text-xl font-bold">Mamotama Admin</h2>
-        <nav className="flex flex-col space-y-2">
-          <Link to="/status" className={pathname === '/status' ? 'font-bold' : ''}>Status</Link>
-          <Link to="/logs" className={pathname === '/logs' ? 'font-bold' : ''}>Logs</Link>
-          <Link to="/rules" className={pathname === '/rules' ? 'font-bold' : ''}>Rules</Link>
-          <Link to="/rule-sets" className={pathname === '/rule-sets' ? 'font-bold' : ''}>Rule Sets</Link>
-          <Link to="/bypass" className={pathname === '/bypass' ? 'font-bold' : ''}>Bypass Rules</Link>
-          <Link to="/country-block" className={pathname === '/country-block' ? 'font-bold' : ''}>Country Block</Link>
-          <Link to="/rate-limit" className={pathname === '/rate-limit' ? 'font-bold' : ''}>Rate Limit</Link>
-          <Link to="/cache" className={pathname === '/cache' ? 'font-bold' : ''}>Cache Rules</Link>
+    <div className="app-shell">
+      <aside className="app-sidebar">
+        <div className="app-brand">
+          <p className="app-brand-tag">MAMOTAMA</p>
+          <h1>Control Room</h1>
+          <p className="app-brand-sub">Coraza + CRS Security Gateway</p>
+        </div>
+
+        <nav className="app-nav" aria-label="primary">
+          {navItems.map((item) => {
+            const active = isActive(pathname, item.to);
+            return (
+              <Link key={item.to} to={item.to} className={active ? "app-nav-link active" : "app-nav-link"}>
+                <span className="app-nav-label">{item.label}</span>
+                <span className="app-nav-hint">{item.hint}</span>
+              </Link>
+            );
+          })}
         </nav>
       </aside>
-      <main className="flex-1 p-6 bg-gray-100 overflow-y-auto">
-        <Outlet />
+
+      <main className="app-main">
+        <header className="app-topbar">
+          <div>
+            <p className="app-kicker">Current Panel</p>
+            <h2>{current?.label ?? "Dashboard"}</h2>
+          </div>
+          <div className="app-top-meta">
+            <span className="app-pill">Admin UI</span>
+            <code>{pathname}</code>
+          </div>
+        </header>
+
+        <section className="app-content">
+          <Outlet />
+        </section>
       </main>
     </div>
   );

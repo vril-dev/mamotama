@@ -309,10 +309,10 @@ export default function Logs() {
                             await downloadAll();
                         } catch (e) {
                             console.error(e);
-                            alert("ダウンロードに失敗しました。コンソールを確認してください。");
+                            alert("Download failed. Check the browser console.");
                         }
                     }}
-                    title="3ファイルをダウンロード（期間指定なし）"
+                    title="Download all three files (no date range)"
                 >
                     Download
                 </button>
@@ -324,7 +324,7 @@ export default function Logs() {
                         load({ reset: true });
                     }}
                     className="border rounded px-3 py-1 text-sm"
-                    title="末尾から読み直し"
+                    title="Reload from latest"
                 >
                     Reload latest
                 </button>
@@ -335,7 +335,7 @@ export default function Logs() {
                     disabled={loading || !canPrev}
                     onClick={() => load({ dir: "next" })}
                     className="border rounded px-3 py-1 text-sm"
-                    title="前へ"
+                    title="Previous page"
                 >
                     ◀ prev
                 </button>
@@ -343,7 +343,7 @@ export default function Logs() {
                     disabled={loading || !canNext}
                     onClick={() => load({ dir: "prev" })}
                     className="border rounded px-3 py-1 text-sm"
-                    title="次へ"
+                    title="Next page"
                 >
                     next ▶
                 </button>
@@ -379,7 +379,7 @@ export default function Logs() {
                             <td className="px-2 py-1">{line.path ?? "-"}</td>
                             <td className="px-2 py-1">
                                 {line.req_id ? (
-                                <code className="cursor-pointer" title="クリックでコピー"
+                                <code className="cursor-pointer" title="Click to copy"
                                     onClick={() => navigator.clipboard.writeText(String(line.req_id))}
                                 >
                                     {String(line.req_id)}

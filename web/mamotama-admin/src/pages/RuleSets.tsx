@@ -122,7 +122,7 @@ export default function RuleSets() {
                 { headers: etag ? { "If-Match": etag } : {} }
             );
             if (!js.ok) {
-                throw new Error("保存に失敗しました");
+                throw new Error("Failed to save");
             }
             setEtag(js.etag ?? null);
             setServerEnabled(new Set(enabledNames));
@@ -139,7 +139,7 @@ export default function RuleSets() {
     }
 
     return (
-        <div className="w-full max-w-5xl mx-auto p-4 space-y-4">
+        <div className="w-full p-4 space-y-4">
             <header className="flex items-center justify-between">
                 <h1 className="text-xl font-semibold">Rule Sets</h1>
                 <div className="flex items-center gap-2">
@@ -150,11 +150,11 @@ export default function RuleSets() {
                 </div>
             </header>
 
-            {error && <div className="border border-red-300 bg-red-50 rounded-xl p-3 text-sm">エラー: {error}</div>}
+            {error && <div className="border border-red-300 bg-red-50 rounded-xl p-3 text-sm">Error: {error}</div>}
 
             <div className="text-sm text-neutral-600">
-                CRS本体ルールの有効/無効を切り替えます。保存後にWAFをホットリロードします。
-                {disabledFile && <span className="ml-2 text-neutral-500">保存先: <code>{disabledFile}</code></span>}
+                Toggle CRS core rules on/off. WAF is hot-reloaded after save.
+                {disabledFile && <span className="ml-2 text-neutral-500">Saved to: <code>{disabledFile}</code></span>}
             </div>
 
             <div className="flex items-center gap-2">
@@ -164,7 +164,7 @@ export default function RuleSets() {
                     onClick={() => setAll(true)}
                     disabled={saving}
                 >
-                    全て有効
+                    Enable all
                 </button>
                 <button
                     type="button"
@@ -172,7 +172,7 @@ export default function RuleSets() {
                     onClick={() => setAll(false)}
                     disabled={saving}
                 >
-                    全て無効
+                    Disable all
                 </button>
                 <button
                     type="button"
@@ -180,7 +180,7 @@ export default function RuleSets() {
                     onClick={() => void load()}
                     disabled={saving}
                 >
-                    最新を取得
+                    Refresh
                 </button>
                 <button
                     type="button"
@@ -188,7 +188,7 @@ export default function RuleSets() {
                     onClick={() => void doSave()}
                     disabled={saving || !dirty}
                 >
-                    {saving ? "保存中…" : "保存してホットリロード"}
+                    {saving ? "Saving..." : "Save & hot reload"}
                 </button>
             </div>
 
@@ -214,17 +214,17 @@ export default function RuleSets() {
                         </label>
                     ))}
                     {rules.length === 0 && (
-                        <div className="p-4 text-sm text-neutral-500">CRSルールファイルが見つかりません。</div>
+                        <div className="p-4 text-sm text-neutral-500">No CRS rule files found.</div>
                     )}
                 </div>
             </div>
 
             <div className="flex items-center justify-between text-xs text-neutral-500">
                 <div className="flex items-center gap-3">
-                    <span>合計: {rules.length}</span>
-                    <span>有効: {enabledNames.length}</span>
-                    <span>無効: {rules.length - enabledNames.length}</span>
-                    {lastSavedAt && <span>最終保存: {new Date(lastSavedAt).toLocaleString()}</span>}
+                    <span>Total: {rules.length}</span>
+                    <span>Enabled: {enabledNames.length}</span>
+                    <span>Disabled: {rules.length - enabledNames.length}</span>
+                    {lastSavedAt && <span>Last saved: {new Date(lastSavedAt).toLocaleString()}</span>}
                 </div>
                 <div className="flex items-center gap-2">
                     {messages.slice(0, 3).map((m, i) => (
