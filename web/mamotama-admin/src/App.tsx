@@ -8,6 +8,8 @@ import CacheRulePanel from './pages/CacheRulesPanel';
 import BypassRulesPanel from './pages/BypassRulesPanel';
 import CountryBlockPanel from './pages/CountryBlockPanel';
 import RateLimitPanel from './pages/RateLimitPanel';
+import BotDefensePanel from './pages/BotDefensePanel';
+import SemanticPanel from './pages/SemanticPanel';
 
 function App() {
   return (
@@ -22,6 +24,8 @@ function App() {
           <Route path="bypass" element={<BypassRulesPanel />} />
           <Route path="country-block" element={<CountryBlockPanel />} />
           <Route path="rate-limit" element={<RateLimitPanel />} />
+          <Route path="bot-defense" element={<BotDefensePanel />} />
+          <Route path="semantic" element={<SemanticPanel />} />
           <Route path="cache" element={<CacheRulePanel />} />
         </Route>
       </Routes>
