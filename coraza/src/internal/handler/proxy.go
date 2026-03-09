@@ -183,6 +183,62 @@ func ProxyHandler(c *gin.Context) {
 		return
 	}
 
+	botDecision := EvaluateBotDefense(c.Request, clientIP, time.Now().UTC())
+	if !botDecision.Allowed {
+		evt := map[string]any{
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			"service": "coraza",
+			"level":   "WARN",
+			"event":   "bot_challenge",
+			"req_id":  reqID,
+			"ip":      clientIP,
+			"country": country,
+			"path":    c.Request.URL.Path,
+			"status":  botDecision.Status,
+			"mode":    botDecision.Mode,
+		}
+		emitJSONLog(evt)
+		_ = appendEventToFile(evt)
+
+		WriteBotDefenseChallenge(c.Writer, c.Request, botDecision)
+		c.Abort()
+		return
+	}
+
+	semanticEval := EvaluateSemantic(c.Request)
+	if semanticEval.Score > 0 {
+		c.Header("X-Mamotama-Semantic-Score", strconv.Itoa(semanticEval.Score))
+	}
+	if semanticEval.Action != semanticActionNone {
+		evt := map[string]any{
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			"service": "coraza",
+			"level":   "WARN",
+			"event":   "semantic_anomaly",
+			"req_id":  reqID,
+			"ip":      clientIP,
+			"country": country,
+			"path":    c.Request.URL.Path,
+			"action":  semanticEval.Action,
+			"score":   semanticEval.Score,
+			"reasons": strings.Join(semanticEval.Reasons, ","),
+		}
+		emitJSONLog(evt)
+		_ = appendEventToFile(evt)
+
+		switch semanticEval.Action {
+		case semanticActionChallenge:
+			if !HasValidSemanticChallengeCookie(c.Request, clientIP, time.Now().UTC()) {
+				WriteSemanticChallenge(c.Writer, c.Request, clientIP)
+				c.Abort()
+				return
+			}
+		case semanticActionBlock:
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+	}
+
 	rateDecision := EvaluateRateLimit(c.Request.Method, c.Request.URL.Path, clientIP, country, time.Now().UTC())
 	if !rateDecision.Allowed {
 		evt := map[string]any{

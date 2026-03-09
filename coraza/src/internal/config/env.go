@@ -14,6 +14,8 @@ var (
 	BypassFile       string
 	CountryBlockFile string
 	RateLimitFile    string
+	BotDefenseFile   string
+	SemanticFile     string
 	LogFile          string
 	StrictOverride   bool
 	APIBasePath      string
@@ -42,6 +44,14 @@ func LoadEnv() {
 	RateLimitFile = strings.TrimSpace(os.Getenv("WAF_RATE_LIMIT_FILE"))
 	if RateLimitFile == "" {
 		RateLimitFile = "conf/rate-limit.conf"
+	}
+	BotDefenseFile = strings.TrimSpace(os.Getenv("WAF_BOT_DEFENSE_FILE"))
+	if BotDefenseFile == "" {
+		BotDefenseFile = "conf/bot-defense.conf"
+	}
+	SemanticFile = strings.TrimSpace(os.Getenv("WAF_SEMANTIC_FILE"))
+	if SemanticFile == "" {
+		SemanticFile = "conf/semantic.conf"
 	}
 	LogFile = os.Getenv("WAF_LOG_FILE")
 	StrictOverride = os.Getenv("WAF_STRICT_OVERRIDE") == "true"

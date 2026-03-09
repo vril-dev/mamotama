@@ -48,6 +48,8 @@ export default function Status() {
                 <Metric label="Rules File" value={String(data.rules_file ?? "-")} />
                 <Metric label="CRS Enabled" value={String(data.crs_enabled ?? "-")} />
                 <Metric label="Rate Limit Enabled" value={String(data.rate_limit_enabled ?? "-")} />
+                <Metric label="Bot Defense Enabled" value={String(data.bot_defense_enabled ?? "-")} />
+                <Metric label="Semantic Mode" value={String(data.semantic_mode ?? "-")} />
             </div>
 
             <pre className="text-sm rounded-xl p-4 shadow-sm overflow-x-auto">
