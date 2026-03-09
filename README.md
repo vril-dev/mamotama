@@ -55,6 +55,8 @@ You can control behavior via `.env`.
 | `WAF_APP_URL` | `http://host.docker.internal:3000` | Upstream application URL (change appropriately for production such as ALB/ECS). |
 | `WAF_LOG_FILE` | (empty) | WAF log output destination. If empty, stdout is used. |
 | `WAF_BYPASS_FILE` | `conf/waf.bypass` | Path for bypass/special-rule definition file. |
+| `WAF_BOT_DEFENSE_FILE` | `conf/bot-defense.conf` | Bot-defense challenge settings file (JSON), editable from admin UI. |
+| `WAF_SEMANTIC_FILE` | `conf/semantic.conf` | Semantic heuristic scoring settings file (JSON), editable from admin UI. |
 | `WAF_COUNTRY_BLOCK_FILE` | `conf/country-block.conf` | Country block definition file (one country code per line, e.g. `JP`, `US`, `UNKNOWN`). |
 | `WAF_RATE_LIMIT_FILE` | `conf/rate-limit.conf` | Rate-limit definition file (JSON), editable from admin UI. |
 | `WAF_RULES_FILE` | `rules/mamotama.conf` | Active base rule file(s). Comma-separated multiple files are supported. |
@@ -100,6 +102,8 @@ For local testing only, you can temporarily relax this with `WAF_ALLOW_INSECURE_
 | `/bypass` | View/edit bypass config directly (`waf.bypass`) |
 | `/country-block` | View/edit country block config directly (`country-block.conf`) |
 | `/rate-limit` | View/edit rate-limit config directly (`rate-limit.conf`) |
+| `/bot-defense` | View/edit bot-defense config directly (`bot-defense.conf`) |
+| `/semantic` | View/edit semantic security config directly (`semantic.conf`) |
 | `/cache-rules` | Visual + raw editing for cache rules (`cache.conf`), with Validate/Save |
 
 ### Screenshots
@@ -176,6 +180,12 @@ You can change the root path by setting `VITE_APP_BASE_PATH` and `VITE_CORAZA_AP
 | GET | `/mamotama-api/rate-limit-rules` | Get rate-limit config file |
 | POST | `/mamotama-api/rate-limit-rules:validate` | Validate rate-limit config (no save) |
 | PUT | `/mamotama-api/rate-limit-rules` | Save rate-limit config (`If-Match` optimistic lock via `ETag`) |
+| GET | `/mamotama-api/bot-defense-rules` | Get bot-defense config file |
+| POST | `/mamotama-api/bot-defense-rules:validate` | Validate bot-defense config (no save) |
+| PUT | `/mamotama-api/bot-defense-rules` | Save bot-defense config (`If-Match` optimistic lock via `ETag`) |
+| GET | `/mamotama-api/semantic-rules` | Get semantic security config and runtime stats |
+| POST | `/mamotama-api/semantic-rules:validate` | Validate semantic config (no save) |
+| PUT | `/mamotama-api/semantic-rules` | Save semantic config (`If-Match` optimistic lock via `ETag`) |
 | GET | `/mamotama-api/cache-rules` | Return `cache.conf` raw + structured data with `ETag` |
 | POST | `/mamotama-api/cache-rules:validate` | Validate cache config (no save) |
 | PUT | `/mamotama-api/cache-rules` | Save `cache.conf` (`If-Match` optimistic lock via `ETag`) |
@@ -249,6 +259,42 @@ On exceed, response uses `action.status` (typically `429`) and includes `Retry-A
 - Tighten login path: add a rule with `match_type=prefix`, `match_value=/login`, `methods=["POST"]`
 - Separate by IP + country: set `key_by="ip_country"`
 - Exempt trusted locations: add to `allowlist_ips` or `allowlist_countries`
+
+### Bot Defense Settings
+
+You can edit `WAF_BOT_DEFENSE_FILE` (default: `conf/bot-defense.conf`) from `/bot-defense`.
+When enabled, suspicious (or all, depending on mode) browser-like GET requests on matched paths receive a challenge response before WAF inspection.
+
+#### JSON Parameter Quick Reference
+
+| Parameter | Example | Effect |
+| --- | --- | --- |
+| `enabled` | `true` / `false` | Enables/disables bot challenge globally. |
+| `mode` | `"suspicious"` | `suspicious` checks UA patterns, `always` challenges all matched requests. |
+| `path_prefixes` | `["/", "/login"]` | Apply challenge only to matching request paths. |
+| `exempt_cidrs` | `["127.0.0.1/32"]` | Skip challenge for trusted source IP/CIDR. |
+| `suspicious_user_agents` | `["curl", "wget"]` | UA substrings used in `suspicious` mode. |
+| `challenge_cookie_name` | `"__mamotama_bot_ok"` | Cookie name used for challenge pass state. |
+| `challenge_secret` | `"long-random-secret"` | Signing secret for challenge token (empty = ephemeral per process). |
+| `challenge_ttl_seconds` | `86400` | Token validity period in seconds. |
+| `challenge_status_code` | `429` | HTTP status returned on challenge response (`4xx/5xx`). |
+
+### Semantic Security Settings
+
+You can edit `WAF_SEMANTIC_FILE` (default: `conf/semantic.conf`) from `/semantic`.
+This is a heuristic detector (rule-based, non-ML) with staged enforcement: `off | log_only | challenge | block`.
+
+#### JSON Parameter Quick Reference
+
+| Parameter | Example | Effect |
+| --- | --- | --- |
+| `enabled` | `true` / `false` | Enables/disables semantic scoring pipeline. |
+| `mode` | `"challenge"` | Enforcement stage: `off` / `log_only` / `challenge` / `block`. |
+| `exempt_path_prefixes` | `["/healthz"]` | Skip semantic scoring for matching paths. |
+| `log_threshold` | `4` | Minimum score to emit semantic anomaly log. |
+| `challenge_threshold` | `7` | Minimum score to issue semantic challenge in `challenge` mode. |
+| `block_threshold` | `9` | Minimum score to hard-block (`403`) in `block` mode. |
+| `max_inspect_body` | `16384` | Max request body bytes inspected by semantic scoring. |
 
 ### Rule File Editing (multi-file aware)
 

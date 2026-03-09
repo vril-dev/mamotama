@@ -27,6 +27,16 @@ func main() {
 	} else {
 		log.Printf("[RATE_LIMIT][INIT] loaded")
 	}
+	if err := handler.InitBotDefense(config.BotDefenseFile); err != nil {
+		log.Printf("[BOT_DEFENSE][INIT][ERR] %v (path=%s)", err, config.BotDefenseFile)
+	} else {
+		log.Printf("[BOT_DEFENSE][INIT] loaded")
+	}
+	if err := handler.InitSemantic(config.SemanticFile); err != nil {
+		log.Printf("[SEMANTIC][INIT][ERR] %v (path=%s)", err, config.SemanticFile)
+	} else {
+		log.Printf("[SEMANTIC][INIT] loaded")
+	}
 
 	log.Println("[INFO] WAF upstream target:", config.AppURL)
 
@@ -62,6 +72,8 @@ func main() {
 					config.APIBasePath + "/cache-rules",
 					config.APIBasePath + "/country-block-rules",
 					config.APIBasePath + "/rate-limit-rules",
+					config.APIBasePath + "/bot-defense-rules",
+					config.APIBasePath + "/semantic-rules",
 					config.APIBasePath + "/logs/read",
 					config.APIBasePath + "/logs/download",
 				},
@@ -89,6 +101,12 @@ func main() {
 		api.GET("/rate-limit-rules", handler.GetRateLimitRules)
 		api.POST("/rate-limit-rules:validate", handler.ValidateRateLimitRules)
 		api.PUT("/rate-limit-rules", handler.PutRateLimitRules)
+		api.GET("/bot-defense-rules", handler.GetBotDefenseRules)
+		api.POST("/bot-defense-rules:validate", handler.ValidateBotDefenseRules)
+		api.PUT("/bot-defense-rules", handler.PutBotDefenseRules)
+		api.GET("/semantic-rules", handler.GetSemanticRules)
+		api.POST("/semantic-rules:validate", handler.ValidateSemanticRules)
+		api.PUT("/semantic-rules", handler.PutSemanticRules)
 	}
 
 	r.NoRoute(func(c *gin.Context) {

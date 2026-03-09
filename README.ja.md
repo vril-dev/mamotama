@@ -56,6 +56,8 @@ Coraza + CRS WAFプロジェクト
 | `WAF_APP_URL` | `http://host.docker.internal:3000` | 透過先アプリの URL（ALB/ECS 等の本番では適宜変更）。 |
 | `WAF_LOG_FILE` | (空) | WAFログの出力先。未設定なら標準出力。 |
 | `WAF_BYPASS_FILE` | `conf/waf.bypass` | バイパス/特別ルール定義ファイルのパス。 |
+| `WAF_BOT_DEFENSE_FILE` | `conf/bot-defense.conf` | Bot defense challenge 設定ファイル（JSON）。管理画面から編集可能。 |
+| `WAF_SEMANTIC_FILE` | `conf/semantic.conf` | Semanticヒューリスティック設定ファイル（JSON）。管理画面から編集可能。 |
 | `WAF_COUNTRY_BLOCK_FILE` | `conf/country-block.conf` | 国別ブロック定義ファイル（1行1国コード、例: `JP`, `US`, `UNKNOWN`）。 |
 | `WAF_RATE_LIMIT_FILE` | `conf/rate-limit.conf` | レート制限定義ファイル（JSON）。管理画面から編集可能。 |
 | `WAF_RULES_FILE` | `rules/mamotama.conf` | 使用するルールファイル（カンマ区切りで複数指定も可）。 |
@@ -101,6 +103,8 @@ Coraza + CRS WAFプロジェクト
 | `/bypass` | バイパス設定の閲覧・編集（waf.bypassを直接操作） |
 | `/country-block` | 国別ブロック設定の閲覧・編集（country-block.conf を直接操作） |
 | `/rate-limit` | レート制限設定の閲覧・編集（rate-limit.conf を直接操作） |
+| `/bot-defense` | Bot defense設定の閲覧・編集（bot-defense.conf を直接操作） |
+| `/semantic` | Semantic Security設定の閲覧・編集（semantic.conf を直接操作） |
 | `/cache-rules` | Cache Rules の可視化・編集（cache.conf の表編集／Raw編集、Validate/Save対応） |
 
 ### 画面キャプチャ
@@ -177,6 +181,12 @@ docker compose up -d coraza openresty
 | GET  | `/mamotama-api/rate-limit-rules` | レート制限設定ファイルの内容を取得 |
 | POST | `/mamotama-api/rate-limit-rules:validate` | レート制限設定の構文検証のみ（保存なし） |
 | PUT  | `/mamotama-api/rate-limit-rules` | レート制限設定ファイルを保存（`If-Match` に `ETag` を指定して楽観ロック） |
+| GET  | `/mamotama-api/bot-defense-rules` | Bot defense設定ファイルの内容を取得 |
+| POST | `/mamotama-api/bot-defense-rules:validate` | Bot defense設定の構文検証のみ（保存なし） |
+| PUT  | `/mamotama-api/bot-defense-rules` | Bot defense設定ファイルを保存（`If-Match` に `ETag` を指定して楽観ロック） |
+| GET  | `/mamotama-api/semantic-rules` | Semantic設定と実行統計を取得 |
+| POST | `/mamotama-api/semantic-rules:validate` | Semantic設定の構文検証のみ（保存なし） |
+| PUT  | `/mamotama-api/semantic-rules` | Semantic設定ファイルを保存（`If-Match` に `ETag` を指定して楽観ロック） |
 | GET  | `/mamotama-api/cache-rules` | cache.conf の現在内容（Raw + 構造化）と `ETag` を返す |
 | POST | `/mamotama-api/cache-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
 | PUT | `/mamotama-api/cache-rules` | cache.conf を保存（`If-Match` に `ETag` を指定して楽観ロック） |
@@ -252,6 +262,42 @@ mamotamaでは、CorazaによるWAF検査を特定のリクエストに対して
 - ログインだけ厳しくしたい: `rules` に `match_type=prefix`, `match_value=/login`, `methods=["POST"]` を追加
 - 同一IP内で国別に分けたい: `key_by="ip_country"`
 - 特定拠点を除外したい: `allowlist_ips` または `allowlist_countries` に追加
+
+### Bot Defense 設定
+
+管理ダッシュボード `/bot-defense` から、`WAF_BOT_DEFENSE_FILE`（既定: `conf/bot-defense.conf`）を編集できます。  
+有効時は、対象パスの GET リクエストに対して（`mode` に応じて）challenge レスポンスを返し、通過後に通常処理へ進みます。
+
+#### JSONパラメータ早見表
+
+| パラメータ | 例 | 影響 |
+| --- | --- | --- |
+| `enabled` | `true` / `false` | Bot challenge の全体ON/OFF。 |
+| `mode` | `"suspicious"` | `suspicious` は UA 条件一致時のみ、`always` は一致パスを常に challenge。 |
+| `path_prefixes` | `["/", "/login"]` | challenge 対象のパス前方一致。 |
+| `exempt_cidrs` | `["127.0.0.1/32"]` | challenge 除外する送信元 IP/CIDR。 |
+| `suspicious_user_agents` | `["curl", "wget"]` | `suspicious` モードで使う UA 部分一致。 |
+| `challenge_cookie_name` | `"__mamotama_bot_ok"` | challenge 通過に使う Cookie 名。 |
+| `challenge_secret` | `"long-random-secret"` | challenge トークン署名シークレット（空ならプロセス起動ごとに一時生成）。 |
+| `challenge_ttl_seconds` | `86400` | challenge トークン有効期限（秒）。 |
+| `challenge_status_code` | `429` | challenge 応答時の HTTP ステータス（`4xx/5xx`）。 |
+
+### Semantic Security 設定
+
+管理ダッシュボード `/semantic` から、`WAF_SEMANTIC_FILE`（既定: `conf/semantic.conf`）を編集できます。  
+これは機械学習ではなくルールベースのヒューリスティック検知で、`off | log_only | challenge | block` の段階制御に対応します。
+
+#### JSONパラメータ早見表
+
+| パラメータ | 例 | 影響 |
+| --- | --- | --- |
+| `enabled` | `true` / `false` | semantic スコアリング全体の有効/無効。 |
+| `mode` | `"challenge"` | 実行モード。`off` / `log_only` / `challenge` / `block`。 |
+| `exempt_path_prefixes` | `["/healthz"]` | 一致パスは semantic 検査をスキップ。 |
+| `log_threshold` | `4` | anomaly ログを出す最小スコア。 |
+| `challenge_threshold` | `7` | `challenge` モードで challenge 応答にする最小スコア。 |
+| `block_threshold` | `9` | `block` モードで `403` にする最小スコア。 |
+| `max_inspect_body` | `16384` | semantic が検査するリクエストボディ最大バイト数。 |
 
 ### ルールファイル編集（複数対応）
 
