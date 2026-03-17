@@ -163,15 +163,24 @@ docker compose up -d coraza openresty
 ./scripts/run_gotestwaf.sh
 ```
 
+前提条件:
+
+- Docker と Docker Compose が利用可能であること
+- スクリプトが `coraza` と `openresty` を自動で build/up すること
+- 既定のホスト公開ポートは `HOST_CORAZA_PORT=19090` と `HOST_OPENRESTY_PORT=18080`
+- 初回実行時は GoTestWAF イメージ取得のため時間がかかる場合があること
+
 デフォルトの合否基準は `MIN_BLOCKED_RATIO=70` です。追加基準は任意で指定できます:
 
 ```bash
 MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30 ./scripts/run_gotestwaf.sh
 ```
 
-スクリプトは既定で OpenResty のホスト公開ポートに `18080` を使います（`:80` 競合回避）。`HOST_OPENRESTY_PORT` で変更できます。
+レポート出力先は `data/logs/gotestwaf/` です:
 
-JSONレポートとサマリは `data/logs/gotestwaf/` に出力されます。
+- JSONフルレポート: `gotestwaf-report.json`
+- Markdownサマリ: `gotestwaf-report-summary.md`
+- Key-Valueサマリ: `gotestwaf-report-summary.txt`
 
 ---
 
@@ -434,8 +443,13 @@ GitHub Actions の `ci` ワークフローで以下を検証します。
 
 - `go test ./...`（`coraza/src`）
 - `docker compose config` の妥当性確認
+- `./scripts/run_gotestwaf.sh`（`waf-test` ジョブ、`MIN_BLOCKED_RATIO=70`）
 
-運用では、`ci / go-test` と `ci / compose-validate` をブランチ保護の Required Checks に設定してください。
+運用では、以下をブランチ保護の Required Checks に設定してください。
+
+- `ci / go-test`
+- `ci / compose-validate`
+- `ci / waf-test`
 
 ---
 

@@ -162,15 +162,24 @@ Run the local regression test:
 ./scripts/run_gotestwaf.sh
 ```
 
+Prerequisites:
+
+- Docker and Docker Compose are available.
+- The script automatically builds/starts `coraza` and `openresty`.
+- Default host ports are `HOST_CORAZA_PORT=19090` and `HOST_OPENRESTY_PORT=18080`.
+- The first run may take longer because the GoTestWAF image is pulled.
+
 Default gate is `MIN_BLOCKED_RATIO=70`. Optional extra gates:
 
 ```bash
 MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30 ./scripts/run_gotestwaf.sh
 ```
 
-The script uses host port `18080` for OpenResty by default (to avoid conflict with `:80`), configurable via `HOST_OPENRESTY_PORT`.
+Reports are written to `data/logs/gotestwaf/`:
 
-The JSON report and summaries are written under `data/logs/gotestwaf/`.
+- JSON full report: `gotestwaf-report.json`
+- Markdown summary: `gotestwaf-report-summary.md`
+- Key-value summary: `gotestwaf-report-summary.txt`
 
 ---
 
@@ -432,8 +441,13 @@ GitHub Actions workflow `ci` validates:
 
 - `go test ./...` (`coraza/src`)
 - `docker compose config` sanity check
+- `./scripts/run_gotestwaf.sh` (`waf-test` job, `MIN_BLOCKED_RATIO=70`)
 
-In production workflows, set `ci / go-test` and `ci / compose-validate` as required branch protection checks.
+In production workflows, set these as required branch protection checks:
+
+- `ci / go-test`
+- `ci / compose-validate`
+- `ci / waf-test`
 
 ---
 
