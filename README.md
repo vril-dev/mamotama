@@ -282,6 +282,20 @@ Local mock test for the Claude command provider:
 ./scripts/test_fp_tuner_claude_command.sh
 ```
 
+### FP Tuner Admin UI Flow
+
+The admin panel (`/fp-tuner`) now supports choosing one `waf_block` event directly from recent logs.
+
+Typical flow:
+
+1. Open `FP Tuner` in admin UI.
+2. In `Pick From Recent waf_block Logs`, click `Use` on the event you want to tune.
+3. Confirm populated event fields (`path`, `rule_id`, `matched_variable`, `matched_value`).
+4. Click `Propose`, review/edit `proposal.rule_line`.
+5. Click `Apply` (`simulate` first, then real apply with approval token if required).
+
+This keeps external provider payload small by sending one selected event at a time.
+
 ---
 
 ## Admin API Endpoints (`/mamotama-api`)

@@ -283,6 +283,20 @@ Claudeコマンドプロバイダのローカルモックテスト:
 ./scripts/test_fp_tuner_claude_command.sh
 ```
 
+### FPチューナー（管理UI）運用フロー
+
+管理画面（`/fp-tuner`）で、最近の `waf_block` ログから対象イベントを1件選択して提案生成できます。
+
+基本フロー:
+
+1. 管理UIの `FP Tuner` を開く
+2. `Pick From Recent waf_block Logs` で調整対象の行の `Use` を押す
+3. 自動反映されたイベント項目（`path` / `rule_id` / `matched_variable` / `matched_value`）を確認
+4. `Propose` を実行し、`proposal.rule_line` を必要に応じて編集
+5. `Apply` を実行（まず `simulate`、必要なら承認トークン付きで実適用）
+
+1回の提案で送る外部プロバイダ向け入力は選択した1イベントのみです（送信量を抑制）。
+
 ---
 
 ## API管理エンドポイント（/mamotama-api）
