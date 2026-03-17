@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { apiPostJson } from "@/lib/api";
+import { apiGetJson, apiPostJson } from "@/lib/api";
 
 type FPTunerProposal = {
   id: string;
@@ -46,6 +46,22 @@ type EventInput = {
   matched_value: string;
 };
 
+type WAFLogLine = {
+  ts?: string;
+  req_id?: string;
+  method?: string;
+  path?: string;
+  rule_id?: string | number;
+  status?: string | number;
+  matched_variable?: string;
+  matched_value?: string;
+  event?: string;
+};
+
+type WAFReadResponse = {
+  lines?: WAFLogLine[];
+};
+
 const defaultEvent: EventInput = {
   event_id: "manual-ui-001",
   method: "GET",
@@ -62,6 +78,11 @@ export default function FPTunerPanel() {
   const [targetPath, setTargetPath] = useState(defaultTargetPath);
   const [useLatestEvent, setUseLatestEvent] = useState(false);
   const [eventInput, setEventInput] = useState<EventInput>(defaultEvent);
+  const [selectedEventID, setSelectedEventID] = useState("");
+  const [logTail, setLogTail] = useState(30);
+  const [wafBlockLines, setWafBlockLines] = useState<WAFLogLine[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
 
   const [proposal, setProposal] = useState<FPTunerProposal | null>(null);
   const [approvalRequired, setApprovalRequired] = useState(false);
@@ -89,6 +110,63 @@ export default function FPTunerPanel() {
     setProposal((prev) => {
       if (!prev) return prev;
       return { ...prev, [key]: value };
+    });
+  }
+
+  const loadWAFBlockLines = useCallback(async () => {
+    setLogError(null);
+    setLogLoading(true);
+    try {
+      const q = new URLSearchParams();
+      q.set("src", "waf");
+      q.set("tail", String(logTail));
+      const res = await apiGetJson<WAFReadResponse>(`/logs/read?${q.toString()}`);
+      const lines = Array.isArray(res.lines) ? res.lines : [];
+      const blocks = lines.filter((line) => line?.event === "waf_block");
+      setWafBlockLines(blocks);
+    } catch (e: any) {
+      setLogError(e?.message || "Failed to load waf logs");
+    } finally {
+      setLogLoading(false);
+    }
+  }, [logTail]);
+
+  useEffect(() => {
+    void loadWAFBlockLines();
+  }, [loadWAFBlockLines]);
+
+  function toStringField(v: unknown, fallback: string) {
+    if (v == null) return fallback;
+    const s = String(v).trim();
+    return s === "" ? fallback : s;
+  }
+
+  function toIntString(v: unknown, fallback: number) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) {
+      return String(fallback);
+    }
+    return String(Math.trunc(n));
+  }
+
+  function shorten(v: unknown, max = 84) {
+    const s = String(v ?? "");
+    if (s.length <= max) return s;
+    return `${s.slice(0, max)}...`;
+  }
+
+  function onSelectWAFBlockLine(line: WAFLogLine) {
+    const pickedEventID = toStringField(line.req_id, toStringField(line.ts, "manual-ui-log"));
+    setSelectedEventID(pickedEventID);
+    setUseLatestEvent(false);
+    setEventInput({
+      event_id: pickedEventID,
+      method: toStringField(line.method, "GET").toUpperCase(),
+      path: toStringField(line.path, "/"),
+      rule_id: toIntString(line.rule_id, 100004),
+      status: toIntString(line.status, 403),
+      matched_variable: toStringField(line.matched_variable, "ARGS:q"),
+      matched_value: toStringField(line.matched_value, ""),
     });
   }
 
@@ -187,6 +265,86 @@ export default function FPTunerPanel() {
             />
             Use latest `waf_block` log event
           </label>
+
+          <div className="rounded border bg-neutral-50 p-2 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold text-neutral-700">Pick From Recent `waf_block` Logs</h3>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-neutral-600">
+                  Rows
+                  <select
+                    className="ml-1 border rounded px-1 py-0.5 bg-white"
+                    value={logTail}
+                    onChange={(e) => setLogTail(Number(e.target.value))}
+                  >
+                    {[20, 30, 50, 100].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="text-xs border rounded px-2 py-0.5 bg-white"
+                  onClick={() => void loadWAFBlockLines()}
+                  disabled={logLoading}
+                >
+                  {logLoading ? "Loading..." : "Reload"}
+                </button>
+              </div>
+            </div>
+
+            {logError && <p className="text-xs text-red-700">Log error: {logError}</p>}
+
+            {!logError && wafBlockLines.length === 0 && (
+              <p className="text-xs text-neutral-500">No `waf_block` events found in the selected range.</p>
+            )}
+
+            {wafBlockLines.length > 0 && (
+              <div className="max-h-44 overflow-auto rounded border bg-white">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-neutral-100 sticky top-0">
+                    <tr>
+                      <th className="px-2 py-1 text-left">use</th>
+                      <th className="px-2 py-1 text-left">ts</th>
+                      <th className="px-2 py-1 text-left">rule_id</th>
+                      <th className="px-2 py-1 text-left">path</th>
+                      <th className="px-2 py-1 text-left">matched_variable</th>
+                      <th className="px-2 py-1 text-left">matched_value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wafBlockLines.map((line, idx) => {
+                      const id = toStringField(line.req_id, toStringField(line.ts, `row-${idx}`));
+                      const active = selectedEventID !== "" && selectedEventID === id;
+                      return (
+                        <tr key={`${id}-${idx}`} className={active ? "bg-blue-50" : ""}>
+                          <td className="px-2 py-1">
+                            <button
+                              className="border rounded px-2 py-0.5"
+                              onClick={() => onSelectWAFBlockLine(line)}
+                              title="Populate event input from this log line"
+                            >
+                              Use
+                            </button>
+                          </td>
+                          <td className="px-2 py-1 whitespace-nowrap">{toStringField(line.ts, "-")}</td>
+                          <td className="px-2 py-1 whitespace-nowrap">{toStringField(line.rule_id, "-")}</td>
+                          <td className="px-2 py-1" title={toStringField(line.path, "-")}>
+                            {shorten(toStringField(line.path, "-"), 36)}
+                          </td>
+                          <td className="px-2 py-1 whitespace-nowrap">{toStringField(line.matched_variable, "-")}</td>
+                          <td className="px-2 py-1" title={toStringField(line.matched_value, "")}>
+                            {shorten(toStringField(line.matched_value, ""), 44)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
           {!useLatestEvent && (
             <div className="grid gap-2 sm:grid-cols-2">
