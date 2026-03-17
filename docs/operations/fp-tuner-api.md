@@ -133,3 +133,11 @@ Run `scripts/test_fp_tuner_http.sh` to verify:
 - `WAF_FP_TUNER_MODE=http` propose/apply flow
 - provider request masking behavior
 - response contract handling with a local stub provider
+
+## Command Bridge Test
+
+Run `scripts/test_fp_tuner_bridge_command.sh` to verify command-based provider integration.
+
+- Bridge server: `scripts/fp_tuner_provider_bridge.py`
+- Example command provider: `scripts/fp_tuner_provider_cmd_example.sh`
+- Override provider command via `BRIDGE_COMMAND=/path/to/cmd.sh`

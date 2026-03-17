@@ -232,6 +232,25 @@ SIMULATE=0 ./scripts/test_fp_tuner_mock.sh
 
 既定のAPI公開ポートは `HOST_CORAZA_PORT=19090` です（`:80` は使用しません）。
 
+### FPチューナー（コマンドブリッジ）送受信テスト
+
+外部ツール連携（将来的な Codex CLI / Claude Code 連携を含む）向けに、`command` モードのブリッジ検証も可能です:
+
+```bash
+./scripts/test_fp_tuner_bridge_command.sh
+```
+
+関連スクリプト:
+
+- `scripts/fp_tuner_provider_bridge.py`: ローカルHTTPブリッジ（`/propose`）
+- `scripts/fp_tuner_provider_cmd_example.sh`: サンプルのコマンドプロバイダ（stdin JSON -> stdout JSON）
+
+独自コマンドに差し替える場合:
+
+```bash
+BRIDGE_COMMAND=\"/path/to/your-provider-command.sh\" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
 ---
 
 ## API管理エンドポイント（/mamotama-api）

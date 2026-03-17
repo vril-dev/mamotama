@@ -231,6 +231,25 @@ What this script does:
 
 Default host API port is `HOST_CORAZA_PORT=19090` (no `:80` dependency).
 
+### FP Tuner Command Bridge Flow
+
+For external-tool integration (including future Codex CLI / Claude Code workflows), run the provider bridge in `command` mode:
+
+```bash
+./scripts/test_fp_tuner_bridge_command.sh
+```
+
+Related scripts:
+
+- `scripts/fp_tuner_provider_bridge.py`: local HTTP bridge (`/propose`)
+- `scripts/fp_tuner_provider_cmd_example.sh`: example command provider (stdin JSON -> stdout JSON)
+
+You can replace `BRIDGE_COMMAND` with your own command that outputs proposal JSON:
+
+```bash
+BRIDGE_COMMAND=\"/path/to/your-provider-command.sh\" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
 ---
 
 ## Admin API Endpoints (`/mamotama-api`)
