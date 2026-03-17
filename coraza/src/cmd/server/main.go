@@ -47,6 +47,11 @@ func main() {
 		log.Fatalf("failed to configure trusted proxies: %v", err)
 	}
 
+	// Lightweight unauthenticated probe for container health checks.
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	if len(config.APICORSOrigins) > 0 {
 		r.Use(cors.New(cors.Config{
 			AllowOrigins: config.APICORSOrigins,

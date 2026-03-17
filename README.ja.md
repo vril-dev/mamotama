@@ -155,6 +155,43 @@ docker compose up -d coraza openresty
 
 環境変数 `.env` に `VITE_APP_BASE_PATH` および `VITE_CORAZA_API_BASE` を定義することで、ルートパスを変更できます。
 
+### WAF回帰テスト（GoTestWAF）
+
+ローカルで回帰テストを実行:
+
+```bash
+./scripts/run_gotestwaf.sh
+```
+
+前提条件:
+
+- Docker と Docker Compose が利用可能であること
+- スクリプトが `coraza` と `openresty` を自動で build/up すること
+- 既定のホスト公開ポートは `HOST_CORAZA_PORT=19090` と `HOST_OPENRESTY_PORT=18080`
+- 初回実行時は GoTestWAF イメージ取得のため時間がかかる場合があること
+
+デフォルトの合否基準は `MIN_BLOCKED_RATIO=70` です。追加基準は任意で指定できます:
+
+```bash
+MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30 ./scripts/run_gotestwaf.sh
+```
+
+レポート出力先は `data/logs/gotestwaf/` です:
+
+- JSONフルレポート: `gotestwaf-report.json`
+- Markdownサマリ: `gotestwaf-report-summary.md`
+- Key-Valueサマリ: `gotestwaf-report-summary.txt`
+
+### デプロイ例
+
+実用向けのサンプル構成を以下に用意しています:
+
+- `examples/nextjs`（Next.js フロントエンド）
+- `examples/wordpress`（WordPress + 高パラノイア CRS 設定）
+- `examples/api-gateway`（REST API + 厳しめレート制限プロファイル）
+
+共通の起動手順は `examples/README.md` を参照してください。
+
 ---
 
 ## API管理エンドポイント（/mamotama-api）
@@ -416,8 +453,13 @@ GitHub Actions の `ci` ワークフローで以下を検証します。
 
 - `go test ./...`（`coraza/src`）
 - `docker compose config` の妥当性確認
+- `./scripts/run_gotestwaf.sh`（`waf-test` ジョブ、`MIN_BLOCKED_RATIO=70`）
 
-運用では、`ci / go-test` と `ci / compose-validate` をブランチ保護の Required Checks に設定してください。
+運用では、以下をブランチ保護の Required Checks に設定してください。
+
+- `ci / go-test`
+- `ci / compose-validate`
+- `ci / waf-test`
 
 ---
 

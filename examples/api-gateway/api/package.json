@@ -1,0 +1,10 @@
+{
+  "name": "mamotama-api-example",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "4.21.2"
+  }
+}
