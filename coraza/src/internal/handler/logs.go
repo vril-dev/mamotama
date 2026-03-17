@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,13 +20,14 @@ import (
 )
 
 var (
-	logDirCoraza    = "logs/coraza"
-	logDirOpenresty = "logs/openresty"
+	logDirCoraza          = "logs/coraza"
+	logDirNginx           = "logs/nginx"
+	logDirOpenrestyLegacy = "logs/openresty"
 
 	logFiles = map[string]string{
 		"waf":    filepath.Join(logDirCoraza, "waf-events.ndjson"),
-		"accerr": filepath.Join(logDirOpenresty, "access-error.ndjson"),
-		"intr":   filepath.Join(logDirOpenresty, "interesting.ndjson"),
+		"accerr": filepath.Join(logDirNginx, "access-error.ndjson"),
+		"intr":   filepath.Join(logDirNginx, "interesting.ndjson"),
 	}
 
 	readChunkSize   = int64(64 * 1024)
@@ -63,6 +65,7 @@ func LogsRead(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid src"})
 		return
 	}
+	path = resolveLogPath(src, path)
 
 	tail := clampInt(mustAtoiDefault(c.Query("tail"), 30), 1, maxLinesPerRead)
 	dir := c.DefaultQuery("dir", "")
@@ -113,6 +116,7 @@ func LogsDownload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid src"})
 		return
 	}
+	path = resolveLogPath(src, path)
 
 	fromStr := c.Query("from")
 	toStr := c.Query("to")
@@ -181,6 +185,20 @@ func LogsDownload(c *gin.Context) {
 			break
 		}
 	}
+}
+
+func resolveLogPath(src, current string) string {
+	if src == "waf" || current == "" {
+		return current
+	}
+	if _, err := os.Stat(current); err == nil {
+		return current
+	}
+	legacy := strings.Replace(current, logDirNginx+"/", logDirOpenrestyLegacy+"/", 1)
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return current
 }
 
 func buildOrUpdateIndex(path string) (*lineIndex, error) {

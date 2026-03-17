@@ -1,4 +1,4 @@
-FROM openresty/openresty:alpine
+FROM nginx:1.27-alpine
 
 ARG NGX_BACKEND_RESPONSE_TIMEOUT
 ENV NGX_BACKEND_RESPONSE_TIMEOUT=${NGX_BACKEND_RESPONSE_TIMEOUT}
@@ -15,9 +15,9 @@ ENV GUID=${GUID}
 
 RUN apk add --no-cache bash curl gettext apache2-utils
 
-COPY waf /etc/openresty/waf
+COPY waf /etc/nginx/waf
 COPY nginx.conf /tmp/nginx.conf.template
-RUN envsubst '$$NGX_CORAZA_API_BASEPATH $$NGX_CORAZA_UPSTREAM $$NGX_BACKEND_RESPONSE_TIMEOUT $$NGX_CORAZA_ADMIN_URL' < /tmp/nginx.conf.template > /usr/local/openresty/nginx/conf/nginx.conf
+RUN envsubst '$$NGX_CORAZA_API_BASEPATH $$NGX_CORAZA_UPSTREAM $$NGX_BACKEND_RESPONSE_TIMEOUT $$NGX_CORAZA_ADMIN_URL' < /tmp/nginx.conf.template > /etc/nginx/nginx.conf
 
-RUN mkdir /var/cache/nginx && \
+RUN mkdir -p /var/cache/nginx && \
     chown -R ${PUID}:${GUID} /var/cache/nginx
