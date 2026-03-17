@@ -79,6 +79,8 @@ func main() {
 					config.APIBasePath + "/rate-limit-rules",
 					config.APIBasePath + "/bot-defense-rules",
 					config.APIBasePath + "/semantic-rules",
+					config.APIBasePath + "/fp-tuner/propose",
+					config.APIBasePath + "/fp-tuner/apply",
 					config.APIBasePath + "/logs/read",
 					config.APIBasePath + "/logs/download",
 				},
@@ -112,6 +114,8 @@ func main() {
 		api.GET("/semantic-rules", handler.GetSemanticRules)
 		api.POST("/semantic-rules:validate", handler.ValidateSemanticRules)
 		api.PUT("/semantic-rules", handler.PutSemanticRules)
+		api.POST("/fp-tuner/propose", handler.ProposeFPTuning)
+		api.POST("/fp-tuner/apply", handler.ApplyFPTuning)
 	}
 
 	r.NoRoute(func(c *gin.Context) {

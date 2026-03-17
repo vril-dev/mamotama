@@ -65,6 +65,15 @@ Coraza + CRS WAFプロジェクト
 | `WAF_CRS_SETUP_FILE` | `rules/crs/crs-setup.conf` | CRSセットアップ設定ファイル。 |
 | `WAF_CRS_RULES_DIR` | `rules/crs/rules` | CRS本体ルール（`*.conf`）のディレクトリ。 |
 | `WAF_CRS_DISABLED_FILE` | `conf/crs-disabled.conf` | CRS本体の無効化ファイル一覧。1行1ファイル名で指定。 |
+| `WAF_FP_TUNER_MODE` | `mock` | FPチューナーのプロバイダモード。`mock` はフィクスチャ/生成提案、`http` は `WAF_FP_TUNER_ENDPOINT` へPOST。 |
+| `WAF_FP_TUNER_ENDPOINT` | (空) | `http` モード時の外部LLMプロキシのHTTPエンドポイント。 |
+| `WAF_FP_TUNER_API_KEY` | (空) | `WAF_FP_TUNER_ENDPOINT` 向け Bearer トークン。 |
+| `WAF_FP_TUNER_MODEL` | (空) | プロバイダへ渡す任意のモデル識別子。 |
+| `WAF_FP_TUNER_TIMEOUT_SEC` | `15` | プロバイダ呼び出し時のHTTPタイムアウト（秒）。 |
+| `WAF_FP_TUNER_MOCK_RESPONSE_FILE` | `conf/fp-tuner-mock-response.json` | `mock` モードで使うレスポンスフィクスチャのパス。 |
+| `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | `simulate=false` の適用時に承認トークンを必須化するか。 |
+| `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | 承認トークンの有効期限（秒）。 |
+| `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | propose/apply 操作の監査ログ出力先。 |
 | `WAF_STRICT_OVERRIDE` | `false` | 特別ルール読み込み失敗時の挙動。`true`で即終了、`false`で警告のみ継続。 |
 | `WAF_API_BASEPATH` | `/mamotama-api` | 管理APIのベースパス（Go側のルーティング基準）。 |
 | `WAF_API_KEY_PRIMARY` | `…` | 管理API用の主キー（`X-API-Key`）。 |
@@ -192,6 +201,102 @@ MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30
 
 共通の起動手順は `examples/README.md` を参照してください。
 
+### FPチューナー（モック）送受信テスト
+
+外部LLMの契約を確定していない段階でも、送信→受信→適用までをテストできます:
+
+```bash
+./scripts/test_fp_tuner_mock.sh
+```
+
+既定では `simulate` 適用（`SIMULATE=1`）です。実際に追記してホットリロードする場合:
+
+```bash
+SIMULATE=0 ./scripts/test_fp_tuner_mock.sh
+```
+
+### FPチューナー（HTTPスタブ）送受信テスト
+
+`http` モードをローカルスタブで検証する場合:
+
+```bash
+./scripts/test_fp_tuner_http.sh
+```
+
+このスクリプトは次を自動実行します:
+
+- `127.0.0.1:${MOCK_PROVIDER_PORT:-18091}` に一時的なプロバイダスタブを起動
+- `WAF_FP_TUNER_MODE=http` で `coraza` を起動/再ビルド
+- `propose` / `apply` の契約を確認
+- 外部送信前にマスキング済みペイロードであることを検証
+
+既定のAPI公開ポートは `HOST_CORAZA_PORT=19090` です（`:80` は使用しません）。
+
+### FPチューナー（コマンドブリッジ）送受信テスト
+
+外部ツール連携（将来的な Codex CLI / Claude Code 連携を含む）向けに、`command` モードのブリッジ検証も可能です:
+
+```bash
+./scripts/test_fp_tuner_bridge_command.sh
+```
+
+関連スクリプト:
+
+- `scripts/fp_tuner_provider_bridge.py`: ローカルHTTPブリッジ（`/propose`）
+- `scripts/fp_tuner_provider_cmd_example.sh`: サンプルのコマンドプロバイダ（stdin JSON -> stdout JSON）
+- `scripts/fp_tuner_provider_openai.sh`: OpenAI互換API向けコマンドプロバイダ（stdin JSON -> API呼び出し -> stdout JSON）
+- `scripts/fp_tuner_provider_claude.sh`: Claude Messages API向けコマンドプロバイダ（stdin JSON -> API呼び出し -> stdout JSON）
+
+独自コマンドに差し替える場合:
+
+```bash
+BRIDGE_COMMAND="/path/to/your-provider-command.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+OpenAIコマンドプロバイダの利用例:
+
+```bash
+export FP_TUNER_OPENAI_API_KEY="<your-api-key>"
+export FP_TUNER_OPENAI_MODEL="<your-model-name>"
+
+BRIDGE_COMMAND="./scripts/fp_tuner_provider_openai.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+OpenAIコマンドプロバイダのローカルモックテスト:
+
+```bash
+./scripts/test_fp_tuner_openai_command.sh
+```
+
+Claudeコマンドプロバイダの利用例:
+
+```bash
+export FP_TUNER_CLAUDE_API_KEY="<your-api-key>"
+export FP_TUNER_CLAUDE_MODEL="claude-sonnet-4-6"
+
+BRIDGE_COMMAND="./scripts/fp_tuner_provider_claude.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+Claudeコマンドプロバイダのローカルモックテスト:
+
+```bash
+./scripts/test_fp_tuner_claude_command.sh
+```
+
+### FPチューナー（管理UI）運用フロー
+
+管理画面（`/fp-tuner`）で、最近の `waf_block` ログから対象イベントを1件選択して提案生成できます。
+
+基本フロー:
+
+1. 管理UIの `FP Tuner` を開く
+2. `Pick From Recent waf_block Logs` で調整対象の行の `Use` を押す
+3. 自動反映されたイベント項目（`path` / `rule_id` / `matched_variable` / `matched_value`）を確認
+4. `Propose` を実行し、`proposal.rule_line` を必要に応じて編集
+5. `Apply` を実行（まず `simulate`、必要なら承認トークン付きで実適用）
+
+1回の提案で送る外部プロバイダ向け入力は選択した1イベントのみです（送信量を抑制）。
+
 ---
 
 ## API管理エンドポイント（/mamotama-api）
@@ -224,6 +329,8 @@ MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30
 | GET  | `/mamotama-api/semantic-rules` | Semantic設定と実行統計を取得 |
 | POST | `/mamotama-api/semantic-rules:validate` | Semantic設定の構文検証のみ（保存なし） |
 | PUT  | `/mamotama-api/semantic-rules` | Semantic設定ファイルを保存（`If-Match` に `ETag` を指定して楽観ロック） |
+| POST | `/mamotama-api/fp-tuner/propose` | リクエスト入力または最新 `waf_block` ログからFP調整案を生成 |
+| POST | `/mamotama-api/fp-tuner/apply` | 調整案の検証/適用（既定は `simulate=true`、実適用は承認トークン必須設定可） |
 | GET  | `/mamotama-api/cache-rules` | cache.conf の現在内容（Raw + 構造化）と `ETag` を返す |
 | POST | `/mamotama-api/cache-rules:validate` | 送信内容の構文・検証のみ（保存なし） |
 | PUT | `/mamotama-api/cache-rules` | cache.conf を保存（`If-Match` に `ETag` を指定して楽観ロック） |
@@ -468,6 +575,7 @@ GitHub Actions の `ci` ワークフローで以下を検証します。
 誤検知の削減手順は以下を参照してください。
 
 - `docs/operations/waf-tuning.md`
+- `docs/operations/fp-tuner-api.md`
 
 ---
 

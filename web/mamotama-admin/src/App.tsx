@@ -10,6 +10,7 @@ import CountryBlockPanel from './pages/CountryBlockPanel';
 import RateLimitPanel from './pages/RateLimitPanel';
 import BotDefensePanel from './pages/BotDefensePanel';
 import SemanticPanel from './pages/SemanticPanel';
+import FPTunerPanel from './pages/FPTunerPanel';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Route path="rate-limit" element={<RateLimitPanel />} />
           <Route path="bot-defense" element={<BotDefensePanel />} />
           <Route path="semantic" element={<SemanticPanel />} />
+          <Route path="fp-tuner" element={<FPTunerPanel />} />
           <Route path="cache" element={<CacheRulePanel />} />
         </Route>
       </Routes>
