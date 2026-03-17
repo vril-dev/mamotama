@@ -215,6 +215,23 @@ MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30
 SIMULATE=0 ./scripts/test_fp_tuner_mock.sh
 ```
 
+### FPチューナー（HTTPスタブ）送受信テスト
+
+`http` モードをローカルスタブで検証する場合:
+
+```bash
+./scripts/test_fp_tuner_http.sh
+```
+
+このスクリプトは次を自動実行します:
+
+- `127.0.0.1:${MOCK_PROVIDER_PORT:-18091}` に一時的なプロバイダスタブを起動
+- `WAF_FP_TUNER_MODE=http` で `coraza` を起動/再ビルド
+- `propose` / `apply` の契約を確認
+- 外部送信前にマスキング済みペイロードであることを検証
+
+既定のAPI公開ポートは `HOST_CORAZA_PORT=19090` です（`:80` は使用しません）。
+
 ---
 
 ## API管理エンドポイント（/mamotama-api）

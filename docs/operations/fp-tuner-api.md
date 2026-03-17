@@ -1,6 +1,6 @@
 # FP Tuner API Contract (v1)
 
-This document defines the current API contract for mock-based FP tuning flow.
+This document defines the current API contract for FP tuning flow (`mock` and `http` modes).
 
 ## Endpoints
 
@@ -125,3 +125,11 @@ Notes:
 - `WAF_FP_TUNER_REQUIRE_APPROVAL` (`true` by default)
 - `WAF_FP_TUNER_APPROVAL_TTL_SEC` (default `600`)
 - `WAF_FP_TUNER_AUDIT_FILE` (default `logs/coraza/fp-tuner-audit.ndjson`)
+
+## Local HTTP Mode Contract Test
+
+Run `scripts/test_fp_tuner_http.sh` to verify:
+
+- `WAF_FP_TUNER_MODE=http` propose/apply flow
+- provider request masking behavior
+- response contract handling with a local stub provider

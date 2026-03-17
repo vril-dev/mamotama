@@ -214,6 +214,23 @@ Default is simulate-only apply (`SIMULATE=1`). To actually append and hot-reload
 SIMULATE=0 ./scripts/test_fp_tuner_mock.sh
 ```
 
+### FP Tuner HTTP Stub Flow
+
+You can also run HTTP provider mode with a local stub endpoint:
+
+```bash
+./scripts/test_fp_tuner_http.sh
+```
+
+What this script does:
+
+- Starts a local temporary provider stub on `127.0.0.1:${MOCK_PROVIDER_PORT:-18091}`
+- Starts/rebuilds `coraza` in `WAF_FP_TUNER_MODE=http`
+- Sends `propose` / `apply` requests and checks response contract
+- Verifies provider-bound payload is masked before external send
+
+Default host API port is `HOST_CORAZA_PORT=19090` (no `:80` dependency).
+
 ---
 
 ## Admin API Endpoints (`/mamotama-api`)
