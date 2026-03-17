@@ -16,6 +16,7 @@ const navItems: NavItem[] = [
   { to: "/rate-limit", label: "Rate Limit", hint: "traffic policies" },
   { to: "/bot-defense", label: "Bot Defense", hint: "ua challenge policy" },
   { to: "/semantic", label: "Semantic Security", hint: "heuristic anomaly scoring" },
+  { to: "/fp-tuner", label: "FP Tuner", hint: "propose and apply exclusions" },
   { to: "/cache", label: "Cache Rules", hint: "edge cache behavior" },
 ];
 

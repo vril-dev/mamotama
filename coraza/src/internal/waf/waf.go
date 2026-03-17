@@ -274,7 +274,12 @@ func ValidateWithRuleOverride(targetPath string, raw []byte) error {
 		dir := filepath.Dir(target)
 		tmp, err := os.CreateTemp(dir, ".rule-validate.*.conf")
 		if err != nil {
-			return err
+			// Some deployments mount rule files read-only for the runtime UID.
+			// Fall back to /tmp so validation can still run.
+			tmp, err = os.CreateTemp("", ".rule-validate.*.conf")
+			if err != nil {
+				return err
+			}
 		}
 		tmpPath := tmp.Name()
 		if _, err := tmp.Write(raw); err != nil {
