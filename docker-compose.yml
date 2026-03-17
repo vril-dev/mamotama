@@ -69,6 +69,7 @@ services:
     restart: unless-stopped
   gotestwaf:
     image: wallarm/gotestwaf:0.5.8@sha256:ff7184da90029a98c87bfdbadcee544c979b999593175d17b2d38f642ee29977
+    user: "${PUID}:${GUID}"
     profiles: ["waf-test"]
     depends_on:
       coraza:
