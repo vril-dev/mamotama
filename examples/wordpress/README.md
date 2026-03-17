@@ -10,7 +10,7 @@ cd examples/wordpress
 docker compose up -d --build
 ```
 
-- WordPress URL: `http://localhost:${OPENRESTY_PORT:-18082}`
+- WordPress URL: `http://localhost:${NGINX_PORT:-18082}`
 - Coraza API: `http://localhost:${CORAZA_PORT:-19092}/mamotama-api/status`
 
 ## Notes

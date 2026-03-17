@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,18 +21,25 @@ import (
 )
 
 var (
-	logDirCoraza    = "logs/coraza"
-	logDirOpenresty = "logs/openresty"
+	logDirCoraza          = "logs/coraza"
+	logDirNginx           = "logs/nginx"
+	logDirOpenrestyLegacy = "logs/openresty"
 
 	logFiles = map[string]string{
 		"waf":    filepath.Join(logDirCoraza, "waf-events.ndjson"),
-		"accerr": filepath.Join(logDirOpenresty, "access-error.ndjson"),
-		"intr":   filepath.Join(logDirOpenresty, "interesting.ndjson"),
+		"accerr": filepath.Join(logDirNginx, "access-error.ndjson"),
+		"intr":   filepath.Join(logDirNginx, "interesting.ndjson"),
 	}
 
 	readChunkSize   = int64(64 * 1024)
 	maxLinesPerRead = 200
 	maxBytesPerRead = int64(512 * 1024)
+
+	defaultStatsScanLines  = 5000
+	maxStatsScanLines      = 50000
+	defaultStatsRangeHours = 24
+	maxStatsRangeHours     = 14 * 24
+	statsTopN              = 5
 )
 
 type logLine map[string]any
@@ -56,6 +65,35 @@ type readResp struct {
 	HasNext    bool      `json:"has_next"`
 }
 
+type statsBucket struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
+type statsSeriesPoint struct {
+	BucketStart string `json:"bucket_start"`
+	Count       int    `json:"count"`
+}
+
+type wafBlockStats struct {
+	Last1h          int                `json:"last_1h"`
+	Last24h         int                `json:"last_24h"`
+	TotalInScan     int                `json:"total_in_scan"`
+	TopRuleIDs24h   []statsBucket      `json:"top_rule_ids_24h"`
+	TopPaths24h     []statsBucket      `json:"top_paths_24h"`
+	TopCountries24h []statsBucket      `json:"top_countries_24h"`
+	SeriesHourly    []statsSeriesPoint `json:"series_hourly"`
+}
+
+type logsStatsResp struct {
+	GeneratedAt     string        `json:"generated_at"`
+	ScannedLines    int           `json:"scanned_lines"`
+	RangeHours      int           `json:"range_hours"`
+	OldestScannedTS string        `json:"oldest_scanned_ts,omitempty"`
+	NewestScannedTS string        `json:"newest_scanned_ts,omitempty"`
+	WAFBlock        wafBlockStats `json:"waf_block"`
+}
+
 func LogsRead(c *gin.Context) {
 	src := c.Query("src")
 	path, ok := logFiles[src]
@@ -63,6 +101,7 @@ func LogsRead(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid src"})
 		return
 	}
+	path = resolveLogPath(src, path)
 
 	tail := clampInt(mustAtoiDefault(c.Query("tail"), 30), 1, maxLinesPerRead)
 	dir := c.DefaultQuery("dir", "")
@@ -113,6 +152,7 @@ func LogsDownload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid src"})
 		return
 	}
+	path = resolveLogPath(src, path)
 
 	fromStr := c.Query("from")
 	toStr := c.Query("to")
@@ -181,6 +221,235 @@ func LogsDownload(c *gin.Context) {
 			break
 		}
 	}
+}
+
+func LogsStats(c *gin.Context) {
+	path, ok := logFiles["waf"]
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "waf log source is not configured"})
+		return
+	}
+	path = resolveLogPath("waf", path)
+
+	scan := clampInt(mustAtoiDefault(c.Query("scan"), defaultStatsScanLines), 1, maxStatsScanLines)
+	rangeHours := clampInt(mustAtoiDefault(c.Query("hours"), defaultStatsRangeHours), 1, maxStatsRangeHours)
+	now := time.Now().UTC()
+	seriesStart, seriesEnd := statsHourlyRange(now, rangeHours)
+
+	lines, _, _, _, err := readByLine(path, scan, nil, "")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusOK, logsStatsResp{
+				GeneratedAt:  now.Format(time.RFC3339Nano),
+				ScannedLines: 0,
+				RangeHours:   rangeHours,
+				WAFBlock: wafBlockStats{
+					TopRuleIDs24h:   []statsBucket{},
+					TopPaths24h:     []statsBucket{},
+					TopCountries24h: []statsBucket{},
+					SeriesHourly:    buildHourlySeries(seriesStart, seriesEnd, map[int64]int{}),
+				},
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	since1h := now.Add(-1 * time.Hour)
+	since24h := now.Add(-24 * time.Hour)
+
+	ruleCounts24h := map[string]int{}
+	pathCounts24h := map[string]int{}
+	countryCounts24h := map[string]int{}
+	seriesCounts := map[int64]int{}
+
+	stats := wafBlockStats{
+		TopRuleIDs24h:   []statsBucket{},
+		TopPaths24h:     []statsBucket{},
+		TopCountries24h: []statsBucket{},
+		SeriesHourly:    []statsSeriesPoint{},
+	}
+	var oldestScannedTS time.Time
+	var newestScannedTS time.Time
+	haveScannedTS := false
+
+	for _, line := range lines {
+		if strings.TrimSpace(logFieldString(line["event"])) != "waf_block" {
+			continue
+		}
+
+		stats.TotalInScan++
+
+		ts, ok := parseLogTS(line["ts"])
+		if !ok {
+			continue
+		}
+		ts = ts.UTC()
+		if !haveScannedTS || ts.Before(oldestScannedTS) {
+			oldestScannedTS = ts
+		}
+		if !haveScannedTS || ts.After(newestScannedTS) {
+			newestScannedTS = ts
+		}
+		haveScannedTS = true
+
+		if !ts.Before(since1h) {
+			stats.Last1h++
+		}
+		if ts.Before(since24h) {
+			if !ts.Before(seriesStart) && ts.Before(seriesEnd) {
+				hourBucket := ts.Truncate(time.Hour).Unix()
+				seriesCounts[hourBucket]++
+			}
+			continue
+		}
+
+		stats.Last24h++
+
+		ruleID := normalizeStatsRuleID(line["rule_id"])
+		pathKey := normalizeStatsPath(line["path"])
+		country := normalizeCountryFromAny(line["country"])
+
+		ruleCounts24h[ruleID]++
+		pathCounts24h[pathKey]++
+		countryCounts24h[country]++
+
+		if !ts.Before(seriesStart) && ts.Before(seriesEnd) {
+			hourBucket := ts.Truncate(time.Hour).Unix()
+			seriesCounts[hourBucket]++
+		}
+	}
+
+	stats.TopRuleIDs24h = topBuckets(ruleCounts24h, statsTopN)
+	stats.TopPaths24h = topBuckets(pathCounts24h, statsTopN)
+	stats.TopCountries24h = topBuckets(countryCounts24h, statsTopN)
+	stats.SeriesHourly = buildHourlySeries(seriesStart, seriesEnd, seriesCounts)
+
+	resp := logsStatsResp{
+		GeneratedAt:  now.Format(time.RFC3339Nano),
+		ScannedLines: len(lines),
+		RangeHours:   rangeHours,
+		WAFBlock:     stats,
+	}
+	if haveScannedTS {
+		resp.OldestScannedTS = oldestScannedTS.Format(time.RFC3339Nano)
+		resp.NewestScannedTS = newestScannedTS.Format(time.RFC3339Nano)
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func parseLogTS(raw any) (time.Time, bool) {
+	ts := strings.TrimSpace(logFieldString(raw))
+	if ts == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse(time.RFC3339, ts); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
+func logFieldString(raw any) string {
+	if raw == nil {
+		return ""
+	}
+	switch v := raw.(type) {
+	case string:
+		return v
+	case json.Number:
+		return v.String()
+	case int:
+		return strconv.Itoa(v)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return fmt.Sprintf("%v", raw)
+	}
+}
+
+func normalizeStatsRuleID(raw any) string {
+	v := strings.TrimSpace(logFieldString(raw))
+	if v == "" || v == "<nil>" {
+		return "UNKNOWN"
+	}
+	return v
+}
+
+func normalizeStatsPath(raw any) string {
+	v := strings.TrimSpace(logFieldString(raw))
+	if v == "" || v == "<nil>" {
+		return "/"
+	}
+	if !strings.HasPrefix(v, "/") {
+		return "/"
+	}
+	return v
+}
+
+func topBuckets(in map[string]int, n int) []statsBucket {
+	if len(in) == 0 || n <= 0 {
+		return []statsBucket{}
+	}
+	out := make([]statsBucket, 0, len(in))
+	for k, c := range in {
+		out = append(out, statsBucket{Key: k, Count: c})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			return out[i].Key < out[j].Key
+		}
+		return out[i].Count > out[j].Count
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+func statsHourlyRange(now time.Time, rangeHours int) (time.Time, time.Time) {
+	end := now.UTC().Truncate(time.Hour).Add(time.Hour)
+	start := end.Add(-time.Duration(rangeHours) * time.Hour)
+	return start, end
+}
+
+func buildHourlySeries(start, end time.Time, counts map[int64]int) []statsSeriesPoint {
+	if !start.Before(end) {
+		return []statsSeriesPoint{}
+	}
+	out := make([]statsSeriesPoint, 0, int(end.Sub(start)/time.Hour))
+	for t := start; t.Before(end); t = t.Add(time.Hour) {
+		out = append(out, statsSeriesPoint{
+			BucketStart: t.Format(time.RFC3339),
+			Count:       counts[t.Unix()],
+		})
+	}
+	return out
+}
+
+func resolveLogPath(src, current string) string {
+	if src == "waf" || current == "" {
+		return current
+	}
+	if _, err := os.Stat(current); err == nil {
+		return current
+	}
+	legacy := strings.Replace(current, logDirNginx+"/", logDirOpenrestyLegacy+"/", 1)
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return current
 }
 
 func buildOrUpdateIndex(path string) (*lineIndex, error) {

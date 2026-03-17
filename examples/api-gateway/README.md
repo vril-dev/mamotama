@@ -10,7 +10,7 @@ cd examples/api-gateway
 docker compose up -d --build
 ```
 
-- API base URL: `http://localhost:${OPENRESTY_PORT:-18083}/v1`
+- API base URL: `http://localhost:${NGINX_PORT:-18083}/v1`
 - Coraza API: `http://localhost:${CORAZA_PORT:-19093}/mamotama-api/status`
 
 ## Smoke tests

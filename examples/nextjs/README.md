@@ -10,7 +10,7 @@ cd examples/nextjs
 docker compose up -d --build
 ```
 
-- App URL: `http://localhost:${OPENRESTY_PORT:-18081}`
+- App URL: `http://localhost:${NGINX_PORT:-18081}`
 - Coraza API: `http://localhost:${CORAZA_PORT:-19091}/mamotama-api/status`
 
 ## Smoke tests
