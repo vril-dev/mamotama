@@ -25,11 +25,18 @@ const (
 	fpTunerDefaultVariable      = "ARGS:q"
 	fpTunerDefaultConfidence    = 0.82
 	fpTunerMaxMatchedValueBytes = 512
+	fpTunerMaxBodyBytes         = int64(1 * 1024 * 1024)
 )
 
 var (
 	fpTunerVariableAllowed = regexp.MustCompile(`^[A-Za-z0-9_.:!]+$`)
 	fpTunerRuleLinePattern = regexp.MustCompile(`^SecRule REQUEST_URI "@beginsWith [^"\r\n]+" "id:[0-9]{6,},phase:1,pass,nolog,ctl:ruleRemoveTargetById=[0-9]+;[A-Za-z0-9_.:!]+,msg:'[^'\r\n]*'"$`)
+	fpTunerMaskBearerToken = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+`)
+	fpTunerMaskJWT         = regexp.MustCompile(`\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b`)
+	fpTunerMaskEmail       = regexp.MustCompile(`\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b`)
+	fpTunerMaskIPv4        = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	fpTunerMaskSecretKV    = regexp.MustCompile(`(?i)\b(token|access_token|refresh_token|api_key|apikey|password|passwd|secret)=([^&\s]+)`)
+	fpTunerMaskLongToken   = regexp.MustCompile(`\b[A-Za-z0-9._~+/=-]{24,}\b`)
 )
 
 type fpTunerEventInput struct {
@@ -77,7 +84,7 @@ type fpTunerApplyBody struct {
 
 func ProposeFPTuning(c *gin.Context) {
 	var in fpTunerProposeBody
-	if err := c.ShouldBindJSON(&in); err != nil && !errors.Is(err, io.EOF) {
+	if err := decodeJSONBodyStrict(c, &in); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -97,7 +104,7 @@ func ProposeFPTuning(c *gin.Context) {
 	providerReq := fpTunerProviderRequest{
 		Version:    "v1",
 		Model:      strings.TrimSpace(config.FPTunerModel),
-		Input:      event,
+		Input:      maskFPTunerProviderInput(event),
 		TargetPath: targetPath,
 		Constraints: []string{
 			"Only return one scoped exclusion rule",
@@ -123,17 +130,18 @@ func ProposeFPTuning(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":       true,
-		"mode":     mode,
-		"source":   source,
-		"input":    event,
-		"proposal": proposal,
+		"ok":               true,
+		"contract_version": "fp_tuner.v1",
+		"mode":             mode,
+		"source":           source,
+		"input":            event,
+		"proposal":         proposal,
 	})
 }
 
 func ApplyFPTuning(c *gin.Context) {
 	var in fpTunerApplyBody
-	if err := c.ShouldBindJSON(&in); err != nil {
+	if err := decodeJSONBodyStrict(c, &in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -167,11 +175,12 @@ func ApplyFPTuning(c *gin.Context) {
 
 	if strings.Contains(string(curRaw), line) {
 		c.JSON(http.StatusOK, gin.H{
-			"ok":            true,
-			"duplicate":     true,
-			"etag":          curETag,
-			"hot_reloaded":  false,
-			"reloaded_file": targetPath,
+			"ok":               true,
+			"contract_version": "fp_tuner.v1",
+			"duplicate":        true,
+			"etag":             curETag,
+			"hot_reloaded":     false,
+			"reloaded_file":    targetPath,
 		})
 		return
 	}
@@ -188,11 +197,12 @@ func ApplyFPTuning(c *gin.Context) {
 	}
 	if simulate {
 		c.JSON(http.StatusOK, gin.H{
-			"ok":            true,
-			"simulated":     true,
-			"hot_reloaded":  false,
-			"reloaded_file": targetPath,
-			"preview_etag":  bypassconf.ComputeETag(nextRaw),
+			"ok":               true,
+			"contract_version": "fp_tuner.v1",
+			"simulated":        true,
+			"hot_reloaded":     false,
+			"reloaded_file":    targetPath,
+			"preview_etag":     bypassconf.ComputeETag(nextRaw),
 		})
 		return
 	}
@@ -211,10 +221,11 @@ func ApplyFPTuning(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":            true,
-		"etag":          bypassconf.ComputeETag(nextRaw),
-		"hot_reloaded":  true,
-		"reloaded_file": targetPath,
+		"ok":               true,
+		"contract_version": "fp_tuner.v1",
+		"etag":             bypassconf.ComputeETag(nextRaw),
+		"hot_reloaded":     true,
+		"reloaded_file":    targetPath,
 	})
 }
 
@@ -416,6 +427,60 @@ func decodeFPTunerProviderResponse(raw []byte) (fpTunerProposal, error) {
 	}
 
 	return fpTunerProposal{}, fmt.Errorf("provider response must be fp_tuner proposal json")
+}
+
+func decodeJSONBodyStrict(c *gin.Context, out any) error {
+	if c == nil || c.Request == nil || c.Request.Body == nil {
+		return io.EOF
+	}
+
+	dec := json.NewDecoder(io.LimitReader(c.Request.Body, fpTunerMaxBodyBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("request body must contain a single JSON object")
+		}
+		return err
+	}
+
+	return nil
+}
+
+func maskFPTunerProviderInput(in fpTunerEventInput) fpTunerEventInput {
+	out := in
+	out.MatchedValue = maskSensitiveText(out.MatchedValue)
+	out.Path = maskSensitiveText(out.Path)
+	return out
+}
+
+func maskSensitiveText(in string) string {
+	out := strings.TrimSpace(in)
+	if out == "" {
+		return ""
+	}
+	out = fpTunerMaskBearerToken.ReplaceAllString(out, "Bearer [redacted-token]")
+	out = fpTunerMaskJWT.ReplaceAllString(out, "[redacted-jwt]")
+	out = fpTunerMaskEmail.ReplaceAllString(out, "[redacted-email]")
+	out = fpTunerMaskIPv4.ReplaceAllString(out, "[redacted-ip]")
+	out = fpTunerMaskSecretKV.ReplaceAllString(out, "$1=[redacted]")
+	out = fpTunerMaskLongToken.ReplaceAllStringFunc(out, func(v string) string {
+		if strings.Contains(v, "/") || strings.Contains(v, ".") {
+			return "[redacted-token]"
+		}
+		hasUpper := strings.IndexFunc(v, func(r rune) bool { return r >= 'A' && r <= 'Z' }) >= 0
+		hasLower := strings.IndexFunc(v, func(r rune) bool { return r >= 'a' && r <= 'z' }) >= 0
+		hasDigit := strings.IndexFunc(v, func(r rune) bool { return r >= '0' && r <= '9' }) >= 0
+		if hasDigit && (hasUpper || hasLower) {
+			return "[redacted-token]"
+		}
+		return v
+	})
+	return out
 }
 
 func fillFPTunerProposalDefaults(proposal fpTunerProposal, in fpTunerEventInput, targetPath string) fpTunerProposal {

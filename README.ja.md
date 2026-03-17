@@ -490,6 +490,7 @@ GitHub Actions の `ci` ワークフローで以下を検証します。
 誤検知の削減手順は以下を参照してください。
 
 - `docs/operations/waf-tuning.md`
+- `docs/operations/fp-tuner-api.md`
 
 ---
 

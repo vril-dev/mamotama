@@ -488,6 +488,7 @@ In production workflows, set these as required branch protection checks:
 See:
 
 - `docs/operations/waf-tuning.md`
+- `docs/operations/fp-tuner-api.md`
 
 ---
 
