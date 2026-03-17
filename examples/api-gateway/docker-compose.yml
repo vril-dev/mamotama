@@ -1,8 +1,14 @@
-services:    
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
   coraza:
     user: "${PUID}:${GUID}"
     build:
-      context: ./coraza
+      context: ../../coraza
       dockerfile: Dockerfile
     environment:
       - WAF_APP_URL=${WAF_APP_URL}
@@ -12,6 +18,8 @@ services:
       - WAF_BYPASS_FILE=${WAF_BYPASS_FILE}
       - WAF_BOT_DEFENSE_FILE=${WAF_BOT_DEFENSE_FILE}
       - WAF_SEMANTIC_FILE=${WAF_SEMANTIC_FILE}
+      - WAF_COUNTRY_BLOCK_FILE=${WAF_COUNTRY_BLOCK_FILE}
+      - WAF_RATE_LIMIT_FILE=${WAF_RATE_LIMIT_FILE}
       - WAF_RULES_FILE=${WAF_RULES_FILE}
       - WAF_API_KEY_PRIMARY=${WAF_API_KEY_PRIMARY}
       - WAF_API_KEY_SECONDARY=${WAF_API_KEY_SECONDARY}
@@ -25,9 +33,9 @@ services:
     volumes:
       - ./data/rules:/app/rules
       - ./data/conf:/app/conf
-      - ./data/logs:/app/logs
+      - ./data/logs/coraza:/app/logs
     ports:
-      - "${CORAZA_PORT:-9090}:9090"
+      - "${CORAZA_PORT:-19093}:9090"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -36,12 +44,15 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
+    depends_on:
+      - api
     restart: unless-stopped
+
   openresty:
     cap_add: ["NET_BIND_SERVICE"]
     user: "${PUID}:${GUID}"
     build:
-      context: ./openresty
+      context: ../../openresty
       dockerfile: Dockerfile
       args:
         NGX_CORAZA_UPSTREAM: ${NGX_CORAZA_UPSTREAM}
@@ -51,11 +62,11 @@ services:
         PUID: ${PUID}
         GUID: ${GUID}
     ports:
-      - "${OPENRESTY_PORT:-80}:80"
+      - "${OPENRESTY_PORT:-18083}:80"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./openresty/waf:/etc/openresty/waf:ro
+      - ../../openresty/waf:/etc/openresty/waf:ro
       - ./data/logs/openresty:/data/logs/openresty
     depends_on:
       coraza:
@@ -67,39 +78,3 @@ services:
       retries: 20
       start_period: 5s
     restart: unless-stopped
-  gotestwaf:
-    image: wallarm/gotestwaf:0.5.8@sha256:ff7184da90029a98c87bfdbadcee544c979b999593175d17b2d38f642ee29977
-    user: "${PUID}:${GUID}"
-    profiles: ["waf-test"]
-    depends_on:
-      coraza:
-        condition: service_healthy
-      openresty:
-        condition: service_healthy
-    command:
-      - --url=http://openresty:80
-      - --wafName=mamotama
-      - --reportFormat=json
-      - --reportPath=/app/reports
-      - --reportName=gotestwaf-report
-      - --noEmailReport
-    volumes:
-      - ./data/logs/gotestwaf:/app/reports
-    restart: "no"
-  web:
-    image: node:22
-    working_dir: /app
-    command: sh -c "npm install && npm run dev"
-    volumes:
-      - ./web/mamotama-admin:/app
-      - web_node_modules:/app/node_modules
-    ports:
-      - "5173:5173"
-    environment:
-      - VITE_CORAZA_API_BASE=${VITE_CORAZA_API_BASE}
-      - VITE_APP_BASE_PATH=${VITE_APP_BASE_PATH}
-      - VITE_API_KEY=${VITE_API_KEY}
-    restart: unless-stopped
-
-volumes:
-  web_node_modules:
