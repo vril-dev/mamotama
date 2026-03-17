@@ -1,0 +1,579 @@
+package handler
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"hash/fnv"
+	"io"
+	"net/http"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"mamotama/internal/bypassconf"
+	"mamotama/internal/config"
+	"mamotama/internal/waf"
+)
+
+const (
+	fpTunerDefaultRuleID        = 100004
+	fpTunerDefaultVariable      = "ARGS:q"
+	fpTunerDefaultConfidence    = 0.82
+	fpTunerMaxMatchedValueBytes = 512
+)
+
+var (
+	fpTunerVariableAllowed = regexp.MustCompile(`^[A-Za-z0-9_.:!]+$`)
+	fpTunerRuleLinePattern = regexp.MustCompile(`^SecRule REQUEST_URI "@beginsWith [^"\r\n]+" "id:[0-9]{6,},phase:1,pass,nolog,ctl:ruleRemoveTargetById=[0-9]+;[A-Za-z0-9_.:!]+,msg:'[^'\r\n]*'"$`)
+)
+
+type fpTunerEventInput struct {
+	EventID         string `json:"event_id,omitempty"`
+	ObservedAt      string `json:"observed_at,omitempty"`
+	Method          string `json:"method,omitempty"`
+	Path            string `json:"path,omitempty"`
+	RuleID          int    `json:"rule_id,omitempty"`
+	Status          int    `json:"status,omitempty"`
+	MatchedVariable string `json:"matched_variable,omitempty"`
+	MatchedValue    string `json:"matched_value,omitempty"`
+}
+
+type fpTunerProposeBody struct {
+	Event      *fpTunerEventInput `json:"event,omitempty"`
+	TargetPath string             `json:"target_path,omitempty"`
+}
+
+type fpTunerProposal struct {
+	ID         string  `json:"id"`
+	Title      string  `json:"title"`
+	Summary    string  `json:"summary"`
+	Reason     string  `json:"reason"`
+	Confidence float64 `json:"confidence"`
+	TargetPath string  `json:"target_path"`
+	RuleLine   string  `json:"rule_line"`
+}
+
+type fpTunerProviderRequest struct {
+	Version     string            `json:"version"`
+	Model       string            `json:"model,omitempty"`
+	Input       fpTunerEventInput `json:"input"`
+	TargetPath  string            `json:"target_path"`
+	Constraints []string          `json:"constraints"`
+}
+
+type fpTunerProviderResponse struct {
+	Proposal fpTunerProposal `json:"proposal"`
+}
+
+type fpTunerApplyBody struct {
+	Proposal fpTunerProposal `json:"proposal"`
+	Simulate *bool           `json:"simulate,omitempty"`
+}
+
+func ProposeFPTuning(c *gin.Context) {
+	var in fpTunerProposeBody
+	if err := c.ShouldBindJSON(&in); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	event, source, err := resolveFPTunerEventInput(in.Event)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	targetPath, err := selectFPTunerTargetPath(in.TargetPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	providerReq := fpTunerProviderRequest{
+		Version:    "v1",
+		Model:      strings.TrimSpace(config.FPTunerModel),
+		Input:      event,
+		TargetPath: targetPath,
+		Constraints: []string{
+			"Only return one scoped exclusion rule",
+			"Rule must be SecRule REQUEST_URI with ctl:ruleRemoveTargetById",
+			"No global disable operations",
+		},
+	}
+
+	proposal, mode, err := requestFPTunerProposal(providerReq)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	proposal = fillFPTunerProposalDefaults(proposal, event, targetPath)
+
+	if err := validateFPTunerRuleLine(proposal.RuleLine); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"ok":      false,
+			"error":   "provider returned unsafe proposal",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":       true,
+		"mode":     mode,
+		"source":   source,
+		"input":    event,
+		"proposal": proposal,
+	})
+}
+
+func ApplyFPTuning(c *gin.Context) {
+	var in fpTunerApplyBody
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	line := strings.TrimSpace(in.Proposal.RuleLine)
+	if line == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "proposal.rule_line is required"})
+		return
+	}
+	if err := validateFPTunerRuleLine(line); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	targetPath, err := selectFPTunerTargetPath(in.Proposal.TargetPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	curRaw, err := os.ReadFile(targetPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	curETag := bypassconf.ComputeETag(curRaw)
+	if ifMatch := c.GetHeader("If-Match"); ifMatch != "" && ifMatch != curETag {
+		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
+		return
+	}
+
+	if strings.Contains(string(curRaw), line) {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":            true,
+			"duplicate":     true,
+			"etag":          curETag,
+			"hot_reloaded":  false,
+			"reloaded_file": targetPath,
+		})
+		return
+	}
+
+	nextRaw := appendFPTunerRule(curRaw, in.Proposal.ID, line)
+	if err := waf.ValidateWithRuleOverride(targetPath, nextRaw); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	simulate := true
+	if in.Simulate != nil {
+		simulate = *in.Simulate
+	}
+	if simulate {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":            true,
+			"simulated":     true,
+			"hot_reloaded":  false,
+			"reloaded_file": targetPath,
+			"preview_etag":  bypassconf.ComputeETag(nextRaw),
+		})
+		return
+	}
+
+	if err := bypassconf.AtomicWriteWithBackup(targetPath, nextRaw); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := waf.ReloadBaseWAF(); err != nil {
+		_ = bypassconf.AtomicWriteWithBackup(targetPath, curRaw)
+		_ = waf.ReloadBaseWAF()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("reload failed and rollback applied: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":            true,
+		"etag":          bypassconf.ComputeETag(nextRaw),
+		"hot_reloaded":  true,
+		"reloaded_file": targetPath,
+	})
+}
+
+func resolveFPTunerEventInput(in *fpTunerEventInput) (fpTunerEventInput, string, error) {
+	if in != nil {
+		norm := normalizeFPTunerEventInput(*in)
+		if norm.Path == "" {
+			return fpTunerEventInput{}, "", fmt.Errorf("event.path is required")
+		}
+		return norm, "request", nil
+	}
+
+	event, err := latestWAFBlockEvent()
+	if err != nil {
+		return fpTunerEventInput{}, "", err
+	}
+
+	return normalizeFPTunerEventInput(event), "waf_log", nil
+}
+
+func latestWAFBlockEvent() (fpTunerEventInput, error) {
+	path, ok := logFiles["waf"]
+	if !ok {
+		return fpTunerEventInput{}, fmt.Errorf("waf log source is not configured")
+	}
+
+	lines, _, _, _, err := readByLine(path, 120, nil, "")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fpTunerEventInput{}, fmt.Errorf("waf event log not found: %s", path)
+		}
+		return fpTunerEventInput{}, err
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		ln := lines[i]
+		if strings.TrimSpace(anyToString(ln["event"])) != "waf_block" {
+			continue
+		}
+		return fpTunerEventInput{
+			EventID:         anyToString(ln["req_id"]),
+			ObservedAt:      anyToString(ln["ts"]),
+			Method:          anyToString(ln["method"]),
+			Path:            anyToString(ln["path"]),
+			RuleID:          anyToInt(ln["rule_id"]),
+			Status:          anyToInt(ln["status"]),
+			MatchedVariable: anyToString(ln["matched_variable"]),
+			MatchedValue:    anyToString(ln["matched_value"]),
+		}, nil
+	}
+
+	return fpTunerEventInput{}, fmt.Errorf("no waf_block event found in %s", path)
+}
+
+func normalizeFPTunerEventInput(in fpTunerEventInput) fpTunerEventInput {
+	in.EventID = strings.TrimSpace(in.EventID)
+	in.ObservedAt = strings.TrimSpace(in.ObservedAt)
+	in.Method = strings.ToUpper(strings.TrimSpace(in.Method))
+	if in.Method == "" {
+		in.Method = http.MethodGet
+	}
+	in.Path = normalizeFPTunerPath(in.Path)
+	if in.RuleID <= 0 {
+		in.RuleID = fpTunerDefaultRuleID
+	}
+	if in.Status <= 0 {
+		in.Status = http.StatusForbidden
+	}
+	in.MatchedVariable = normalizeFPTunerVariable(in.MatchedVariable)
+	in.MatchedValue = clampText(strings.TrimSpace(in.MatchedValue), fpTunerMaxMatchedValueBytes)
+	return in
+}
+
+func normalizeFPTunerPath(v string) string {
+	p := strings.TrimSpace(v)
+	if p == "" || !strings.HasPrefix(p, "/") {
+		return "/"
+	}
+	if strings.ContainsAny(p, "\n\r\"") {
+		return "/"
+	}
+	return p
+}
+
+func normalizeFPTunerVariable(v string) string {
+	s := strings.TrimSpace(v)
+	if s == "" {
+		return fpTunerDefaultVariable
+	}
+	if !fpTunerVariableAllowed.MatchString(s) {
+		return fpTunerDefaultVariable
+	}
+	return s
+}
+
+func clampText(v string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if len(v) <= max {
+		return v
+	}
+	return v[:max]
+}
+
+func requestFPTunerProposal(req fpTunerProviderRequest) (fpTunerProposal, string, error) {
+	mode := strings.ToLower(strings.TrimSpace(config.FPTunerMode))
+	if mode == "" {
+		mode = "mock"
+	}
+
+	switch mode {
+	case "mock":
+		p, err := requestFPTunerProposalMock(req)
+		return p, mode, err
+	case "http":
+		p, err := requestFPTunerProposalHTTP(req)
+		return p, mode, err
+	default:
+		return fpTunerProposal{}, "", fmt.Errorf("unsupported WAF_FP_TUNER_MODE: %s", mode)
+	}
+}
+
+func requestFPTunerProposalMock(req fpTunerProviderRequest) (fpTunerProposal, error) {
+	fixture := strings.TrimSpace(config.FPTunerMockResponseFile)
+	if fixture != "" {
+		proposal, err := readFPTunerMockProposal(fixture)
+		if err == nil {
+			return fillFPTunerProposalDefaults(proposal, req.Input, req.TargetPath), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fpTunerProposal{}, err
+		}
+	}
+
+	proposal := buildMockFPTunerProposal(req.Input, req.TargetPath)
+	return fillFPTunerProposalDefaults(proposal, req.Input, req.TargetPath), nil
+}
+
+func requestFPTunerProposalHTTP(req fpTunerProviderRequest) (fpTunerProposal, error) {
+	endpoint := strings.TrimSpace(config.FPTunerEndpoint)
+	if endpoint == "" {
+		return fpTunerProposal{}, fmt.Errorf("WAF_FP_TUNER_ENDPOINT is empty")
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fpTunerProposal{}, err
+	}
+
+	client := &http.Client{Timeout: config.FPTunerTimeout}
+	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fpTunerProposal{}, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if key := strings.TrimSpace(config.FPTunerAPIKey); key != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+key)
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return fpTunerProposal{}, err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fpTunerProposal{}, fmt.Errorf("provider returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+
+	proposal, err := decodeFPTunerProviderResponse(raw)
+	if err != nil {
+		return fpTunerProposal{}, err
+	}
+	return fillFPTunerProposalDefaults(proposal, req.Input, req.TargetPath), nil
+}
+
+func readFPTunerMockProposal(path string) (fpTunerProposal, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fpTunerProposal{}, err
+	}
+	return decodeFPTunerProviderResponse(raw)
+}
+
+func decodeFPTunerProviderResponse(raw []byte) (fpTunerProposal, error) {
+	var wrapped fpTunerProviderResponse
+	if err := json.Unmarshal(raw, &wrapped); err == nil {
+		if strings.TrimSpace(wrapped.Proposal.RuleLine) != "" || strings.TrimSpace(wrapped.Proposal.Summary) != "" {
+			return wrapped.Proposal, nil
+		}
+	}
+
+	var direct fpTunerProposal
+	if err := json.Unmarshal(raw, &direct); err == nil {
+		if strings.TrimSpace(direct.RuleLine) != "" || strings.TrimSpace(direct.Summary) != "" {
+			return direct, nil
+		}
+	}
+
+	return fpTunerProposal{}, fmt.Errorf("provider response must be fp_tuner proposal json")
+}
+
+func fillFPTunerProposalDefaults(proposal fpTunerProposal, in fpTunerEventInput, targetPath string) fpTunerProposal {
+	if strings.TrimSpace(proposal.ID) == "" {
+		proposal.ID = fmt.Sprintf("fp-%d", time.Now().UTC().Unix())
+	}
+	if strings.TrimSpace(proposal.Title) == "" {
+		proposal.Title = "Scoped false-positive tuning suggestion"
+	}
+	if strings.TrimSpace(proposal.Summary) == "" {
+		proposal.Summary = fmt.Sprintf("Exclude %s from rule %d only under path prefix %s.", in.MatchedVariable, in.RuleID, in.Path)
+	}
+	if strings.TrimSpace(proposal.Reason) == "" {
+		proposal.Reason = "Generated by mamotama fp-tuner mock flow"
+	}
+	if proposal.Confidence <= 0 {
+		proposal.Confidence = fpTunerDefaultConfidence
+	}
+	if proposal.Confidence > 1 && proposal.Confidence <= 100 {
+		proposal.Confidence = proposal.Confidence / 100
+	}
+	if strings.TrimSpace(proposal.TargetPath) == "" {
+		proposal.TargetPath = targetPath
+	}
+	if strings.TrimSpace(proposal.RuleLine) == "" {
+		proposal.RuleLine = buildFPTunerRuleLine(in)
+	}
+	return proposal
+}
+
+func buildMockFPTunerProposal(in fpTunerEventInput, targetPath string) fpTunerProposal {
+	return fpTunerProposal{
+		ID:         fmt.Sprintf("fp-%d", time.Now().UTC().Unix()),
+		Title:      "Scoped false-positive tuning suggestion",
+		Summary:    fmt.Sprintf("Possible false positive on %s (%s).", in.Path, in.MatchedVariable),
+		Reason:     "Mock provider response used for API contract testing",
+		Confidence: fpTunerDefaultConfidence,
+		TargetPath: targetPath,
+		RuleLine:   buildFPTunerRuleLine(in),
+	}
+}
+
+func buildFPTunerRuleLine(in fpTunerEventInput) string {
+	ruleID := in.RuleID
+	if ruleID <= 0 {
+		ruleID = fpTunerDefaultRuleID
+	}
+	path := normalizeFPTunerPath(in.Path)
+	variable := normalizeFPTunerVariable(in.MatchedVariable)
+	generatedID := generateFPTunerRuleID(ruleID, path, variable)
+	msg := "mamotama fp_tuner scoped exclusion"
+	return fmt.Sprintf(`SecRule REQUEST_URI "@beginsWith %s" "id:%d,phase:1,pass,nolog,ctl:ruleRemoveTargetById=%d;%s,msg:'%s'"`, path, generatedID, ruleID, variable, msg)
+}
+
+func generateFPTunerRuleID(ruleID int, path, variable string) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strconv.Itoa(ruleID)))
+	_, _ = h.Write([]byte("|" + path + "|" + variable))
+	return 190000 + int(h.Sum32()%9000)
+}
+
+func selectFPTunerTargetPath(requested string) (string, error) {
+	if strings.TrimSpace(requested) != "" {
+		return ensureEditableRulePath(requested)
+	}
+	for _, part := range strings.Split(config.RulesFile, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if p, err := ensureEditableRulePath(part); err == nil {
+			return p, nil
+		}
+	}
+	files := configuredRuleFiles()
+	if len(files) == 0 {
+		return "", fmt.Errorf("no editable rule files configured")
+	}
+	return ensureEditableRulePath(files[0])
+}
+
+func validateFPTunerRuleLine(line string) error {
+	s := strings.TrimSpace(line)
+	if !fpTunerRuleLinePattern.MatchString(s) {
+		return fmt.Errorf("proposal.rule_line must be a scoped SecRule REQUEST_URI exclusion")
+	}
+	return nil
+}
+
+func appendFPTunerRule(cur []byte, proposalID, line string) []byte {
+	trimmed := strings.TrimRight(string(cur), "\n")
+	if proposalID == "" {
+		proposalID = "manual"
+	}
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	comment := fmt.Sprintf("# fp-tuner proposal=%s applied_at=%s", proposalID, stamp)
+	if trimmed == "" {
+		return []byte(comment + "\n" + line + "\n")
+	}
+	return []byte(trimmed + "\n\n" + comment + "\n" + line + "\n")
+}
+
+func anyToString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case json.Number:
+		return t.String()
+	case fmt.Stringer:
+		return t.String()
+	case float64:
+		if t == float64(int64(t)) {
+			return strconv.FormatInt(int64(t), 10)
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	default:
+		return ""
+	}
+}
+
+func anyToInt(v any) int {
+	switch t := v.(type) {
+	case int:
+		return t
+	case int8:
+		return int(t)
+	case int16:
+		return int(t)
+	case int32:
+		return int(t)
+	case int64:
+		return int(t)
+	case uint:
+		return int(t)
+	case uint32:
+		return int(t)
+	case uint64:
+		return int(t)
+	case float64:
+		return int(t)
+	case json.Number:
+		n, err := t.Int64()
+		if err == nil {
+			return int(n)
+		}
+		f, err := t.Float64()
+		if err == nil {
+			return int(f)
+		}
+		return 0
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(t))
+		return n
+	default:
+		return 0
+	}
+}

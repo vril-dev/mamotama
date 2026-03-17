@@ -3,7 +3,9 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -29,6 +31,13 @@ var (
 	CRSDisabledFile  string
 
 	AllowInsecureDefaults bool
+
+	FPTunerMode             string
+	FPTunerEndpoint         string
+	FPTunerAPIKey           string
+	FPTunerModel            string
+	FPTunerTimeout          time.Duration
+	FPTunerMockResponseFile string
 )
 
 func LoadEnv() {
@@ -85,6 +94,23 @@ func LoadEnv() {
 	if CRSDisabledFile == "" {
 		CRSDisabledFile = "conf/crs-disabled.conf"
 	}
+
+	FPTunerMode = strings.ToLower(strings.TrimSpace(os.Getenv("WAF_FP_TUNER_MODE")))
+	if FPTunerMode == "" {
+		FPTunerMode = "mock"
+	}
+	FPTunerEndpoint = strings.TrimSpace(os.Getenv("WAF_FP_TUNER_ENDPOINT"))
+	FPTunerAPIKey = strings.TrimSpace(os.Getenv("WAF_FP_TUNER_API_KEY"))
+	FPTunerModel = strings.TrimSpace(os.Getenv("WAF_FP_TUNER_MODEL"))
+	FPTunerMockResponseFile = strings.TrimSpace(os.Getenv("WAF_FP_TUNER_MOCK_RESPONSE_FILE"))
+	if FPTunerMockResponseFile == "" {
+		FPTunerMockResponseFile = "conf/fp-tuner-mock-response.json"
+	}
+	timeoutSec := parseIntDefault(os.Getenv("WAF_FP_TUNER_TIMEOUT_SEC"), 15)
+	if timeoutSec < 1 || timeoutSec > 300 {
+		timeoutSec = 15
+	}
+	FPTunerTimeout = time.Duration(timeoutSec) * time.Second
 
 	AllowInsecureDefaults = isTruthy(os.Getenv("WAF_ALLOW_INSECURE_DEFAULTS"))
 	enforceSecureDefaults()
@@ -156,4 +182,16 @@ func parseCSV(v string) []string {
 	}
 
 	return out
+}
+
+func parseIntDefault(v string, d int) int {
+	s := strings.TrimSpace(v)
+	if s == "" {
+		return d
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return d
+	}
+	return n
 }

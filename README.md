@@ -64,6 +64,12 @@ You can control behavior via `.env`.
 | `WAF_CRS_SETUP_FILE` | `rules/crs/crs-setup.conf` | CRS setup file path. |
 | `WAF_CRS_RULES_DIR` | `rules/crs/rules` | Directory for CRS core rules (`*.conf`). |
 | `WAF_CRS_DISABLED_FILE` | `conf/crs-disabled.conf` | Disabled CRS core rule list file (one filename per line). |
+| `WAF_FP_TUNER_MODE` | `mock` | FP tuner provider mode. `mock` reads fixture or generated suggestion, `http` posts to `WAF_FP_TUNER_ENDPOINT`. |
+| `WAF_FP_TUNER_ENDPOINT` | (empty) | HTTP endpoint for external LLM proxy in `http` mode. |
+| `WAF_FP_TUNER_API_KEY` | (empty) | Bearer token for `WAF_FP_TUNER_ENDPOINT`. |
+| `WAF_FP_TUNER_MODEL` | (empty) | Optional model label passed to provider payload. |
+| `WAF_FP_TUNER_TIMEOUT_SEC` | `15` | HTTP timeout (seconds) for provider calls. |
+| `WAF_FP_TUNER_MOCK_RESPONSE_FILE` | `conf/fp-tuner-mock-response.json` | Mock provider response fixture path used in `mock` mode. |
 | `WAF_STRICT_OVERRIDE` | `false` | Behavior when a special-rule file fails to load. `true`: fail fast. `false`: warn and continue. |
 | `WAF_API_BASEPATH` | `/mamotama-api` | Base path for admin API routing on Go server. |
 | `WAF_API_KEY_PRIMARY` | `...` | Primary admin API key (`X-API-Key`). |
@@ -191,6 +197,20 @@ Practical example stacks are available under:
 
 See `examples/README.md` for common setup flow.
 
+### FP Tuner Mock Flow
+
+You can test send/receive/apply flow without an external LLM contract:
+
+```bash
+./scripts/test_fp_tuner_mock.sh
+```
+
+Default is simulate-only apply (`SIMULATE=1`). To actually append and hot-reload:
+
+```bash
+SIMULATE=0 ./scripts/test_fp_tuner_mock.sh
+```
+
 ---
 
 ## Admin API Endpoints (`/mamotama-api`)
@@ -223,6 +243,8 @@ See `examples/README.md` for common setup flow.
 | GET | `/mamotama-api/semantic-rules` | Get semantic security config and runtime stats |
 | POST | `/mamotama-api/semantic-rules:validate` | Validate semantic config (no save) |
 | PUT | `/mamotama-api/semantic-rules` | Save semantic config (`If-Match` optimistic lock via `ETag`) |
+| POST | `/mamotama-api/fp-tuner/propose` | Build FP tuning proposal from request payload or latest `waf_block` log event |
+| POST | `/mamotama-api/fp-tuner/apply` | Validate/apply proposed scoped exclusion rule (`simulate=true` by default) |
 | GET | `/mamotama-api/cache-rules` | Return `cache.conf` raw + structured data with `ETag` |
 | POST | `/mamotama-api/cache-rules:validate` | Validate cache config (no save) |
 | PUT | `/mamotama-api/cache-rules` | Save `cache.conf` (`If-Match` optimistic lock via `ETag`) |
