@@ -244,6 +244,7 @@ Related scripts:
 - `scripts/fp_tuner_provider_bridge.py`: local HTTP bridge (`/propose`)
 - `scripts/fp_tuner_provider_cmd_example.sh`: example command provider (stdin JSON -> stdout JSON)
 - `scripts/fp_tuner_provider_openai.sh`: OpenAI-compatible command provider (stdin JSON -> API call -> stdout JSON)
+- `scripts/fp_tuner_provider_claude.sh`: Claude Messages API command provider (stdin JSON -> API call -> stdout JSON)
 
 You can replace `BRIDGE_COMMAND` with your own command that outputs proposal JSON:
 
@@ -264,6 +265,21 @@ Local mock test for the OpenAI command provider:
 
 ```bash
 ./scripts/test_fp_tuner_openai_command.sh
+```
+
+Claude command provider example:
+
+```bash
+export FP_TUNER_CLAUDE_API_KEY="<your-api-key>"
+export FP_TUNER_CLAUDE_MODEL="claude-sonnet-4-6"
+
+BRIDGE_COMMAND="./scripts/fp_tuner_provider_claude.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+Local mock test for the Claude command provider:
+
+```bash
+./scripts/test_fp_tuner_claude_command.sh
 ```
 
 ---

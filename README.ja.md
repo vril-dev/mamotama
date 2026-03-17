@@ -245,6 +245,7 @@ SIMULATE=0 ./scripts/test_fp_tuner_mock.sh
 - `scripts/fp_tuner_provider_bridge.py`: ローカルHTTPブリッジ（`/propose`）
 - `scripts/fp_tuner_provider_cmd_example.sh`: サンプルのコマンドプロバイダ（stdin JSON -> stdout JSON）
 - `scripts/fp_tuner_provider_openai.sh`: OpenAI互換API向けコマンドプロバイダ（stdin JSON -> API呼び出し -> stdout JSON）
+- `scripts/fp_tuner_provider_claude.sh`: Claude Messages API向けコマンドプロバイダ（stdin JSON -> API呼び出し -> stdout JSON）
 
 独自コマンドに差し替える場合:
 
@@ -265,6 +266,21 @@ OpenAIコマンドプロバイダのローカルモックテスト:
 
 ```bash
 ./scripts/test_fp_tuner_openai_command.sh
+```
+
+Claudeコマンドプロバイダの利用例:
+
+```bash
+export FP_TUNER_CLAUDE_API_KEY="<your-api-key>"
+export FP_TUNER_CLAUDE_MODEL="claude-sonnet-4-6"
+
+BRIDGE_COMMAND="./scripts/fp_tuner_provider_claude.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+Claudeコマンドプロバイダのローカルモックテスト:
+
+```bash
+./scripts/test_fp_tuner_claude_command.sh
 ```
 
 ---

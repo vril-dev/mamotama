@@ -157,3 +157,21 @@ Run `scripts/test_fp_tuner_bridge_command.sh` to verify command-based provider i
 Local mock validation:
 
 - `scripts/test_fp_tuner_openai_command.sh`
+
+### Claude Messages Command Provider
+
+- Script: `scripts/fp_tuner_provider_claude.sh`
+- Required envs:
+  - `FP_TUNER_CLAUDE_API_KEY` (or `ANTHROPIC_API_KEY`)
+  - `FP_TUNER_CLAUDE_MODEL` (or `ANTHROPIC_MODEL`, or provider request `model`)
+- Optional envs:
+  - `FP_TUNER_CLAUDE_BASE_URL` (default `https://api.anthropic.com`)
+  - `FP_TUNER_CLAUDE_ENDPOINT` (override full endpoint URL, default `/v1/messages`)
+  - `FP_TUNER_CLAUDE_API_VERSION` (default `2023-06-01`)
+  - `FP_TUNER_CLAUDE_BETA` (optional `anthropic-beta` header value)
+  - `FP_TUNER_CLAUDE_TIMEOUT_SEC` (default `30`)
+  - `FP_TUNER_CLAUDE_MAX_TOKENS` (default `700`)
+
+Local mock validation:
+
+- `scripts/test_fp_tuner_claude_command.sh`
