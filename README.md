@@ -39,7 +39,7 @@ Edit `data/rules/crs/crs-setup.conf` as needed (for example, paranoia level and 
 
 You can control behavior via `.env`.
 
-### Nginx (OpenResty)
+### Nginx
 
 | Variable | Example | Description |
 | --- | --- | --- |
@@ -144,7 +144,7 @@ For local testing only, you can temporarily relax this with `WAF_ALLOW_INSECURE_
 ### Libraries
 
 - coraza 3.3.3
-- openresty 1.27
+- nginx 1.27
 - go 1.25.7
 - React 19
 - Vite 7
@@ -156,9 +156,9 @@ For local testing only, you can temporarily relax this with `WAF_ALLOW_INSECURE_
 
 ```bash
 ./scripts/install_crs.sh
-docker compose build coraza openresty
+docker compose build coraza nginx
 docker compose up web
-docker compose up -d coraza openresty
+docker compose up -d coraza nginx
 ```
 
 You can change the root path by setting `VITE_APP_BASE_PATH` and `VITE_CORAZA_API_BASE` in `.env`.
@@ -174,8 +174,9 @@ Run the local regression test:
 Prerequisites:
 
 - Docker and Docker Compose are available.
-- The script automatically builds/starts `coraza` and `openresty`.
-- Default host ports are `HOST_CORAZA_PORT=19090` and `HOST_OPENRESTY_PORT=18080`.
+- The script automatically builds/starts `coraza` and `nginx`.
+- Default host ports are `HOST_CORAZA_PORT=19090` and `HOST_NGINX_PORT=18080`.
+- Legacy `HOST_OPENRESTY_PORT` is still accepted for compatibility.
 - The first run may take longer because the GoTestWAF image is pulled.
 
 Default gate is `MIN_BLOCKED_RATIO=70`. Optional extra gates:
@@ -306,6 +307,7 @@ This keeps external provider payload small by sending one selected event at a ti
 | --- | --- | --- |
 | GET | `/mamotama-api/status` | Get current WAF status/config |
 | GET | `/mamotama-api/logs/read` | Read WAF logs (`tail`) with optional country filter via `country` query |
+| GET | `/mamotama-api/logs/stats` | Return WAF block summary + hourly series (`hours`, `scan` query supported) |
 | GET | `/mamotama-api/logs/download` | Download log files (`waf` / `accerr` / `intr`) as ZIP |
 | GET | `/mamotama-api/rules` | Get active rule files (multi-file aware) |
 | POST | `/mamotama-api/rules:validate` | Validate rule syntax (no save) |
