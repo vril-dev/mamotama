@@ -307,6 +307,7 @@ This keeps external provider payload small by sending one selected event at a ti
 | --- | --- | --- |
 | GET | `/mamotama-api/status` | Get current WAF status/config |
 | GET | `/mamotama-api/logs/read` | Read WAF logs (`tail`) with optional country filter via `country` query |
+| GET | `/mamotama-api/logs/stats` | Return WAF block summary + hourly series (`hours`, `scan` query supported) |
 | GET | `/mamotama-api/logs/download` | Download log files (`waf` / `accerr` / `intr`) as ZIP |
 | GET | `/mamotama-api/rules` | Get active rule files (multi-file aware) |
 | POST | `/mamotama-api/rules:validate` | Validate rule syntax (no save) |

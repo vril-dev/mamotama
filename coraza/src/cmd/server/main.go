@@ -82,6 +82,7 @@ func main() {
 					config.APIBasePath + "/fp-tuner/propose",
 					config.APIBasePath + "/fp-tuner/apply",
 					config.APIBasePath + "/logs/read",
+					config.APIBasePath + "/logs/stats",
 					config.APIBasePath + "/logs/download",
 				},
 			})
@@ -89,6 +90,7 @@ func main() {
 
 		api.GET("/status", handler.StatusHandler)
 		api.GET("/logs/read", handler.LogsRead)
+		api.GET("/logs/stats", handler.LogsStats)
 		api.GET("/logs/download", handler.LogsDownload)
 		api.GET("/rules", handler.RulesHandler)
 		api.POST("/rules:validate", handler.ValidateRules)

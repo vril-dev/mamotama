@@ -308,6 +308,7 @@ Claudeコマンドプロバイダのローカルモックテスト:
 | --- | --- | --- |
 | GET | `/mamotama-api/status` | 現在のWAF設定状態を取得 |
 | GET | `/mamotama-api/logs/read` | WAFログ（tail）を取得（`country` クエリで国別フィルタ可） |
+| GET | `/mamotama-api/logs/stats` | WAFブロック統計 + 時間別seriesを取得（`hours` / `scan` クエリ対応） |
 | GET | `/mamotama-api/logs/download` | 3種類のログファイル（`waf` / `accerr` / `intr`）をZIPでまとめてダウンロード |
 | GET | `/mamotama-api/rules` | ルールファイル一覧を取得（複数対応） |
 | POST | `/mamotama-api/rules:validate` | 指定ルールファイルの構文検証（保存なし） |
