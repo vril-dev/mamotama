@@ -141,3 +141,19 @@ Run `scripts/test_fp_tuner_bridge_command.sh` to verify command-based provider i
 - Bridge server: `scripts/fp_tuner_provider_bridge.py`
 - Example command provider: `scripts/fp_tuner_provider_cmd_example.sh`
 - Override provider command via `BRIDGE_COMMAND=/path/to/cmd.sh`
+
+### OpenAI-Compatible Command Provider
+
+- Script: `scripts/fp_tuner_provider_openai.sh`
+- Required envs:
+  - `FP_TUNER_OPENAI_API_KEY` (or `OPENAI_API_KEY`)
+  - `FP_TUNER_OPENAI_MODEL` (or `OPENAI_MODEL`, or provider request `model`)
+- Optional envs:
+  - `FP_TUNER_OPENAI_API_TYPE` (`responses` default, or `chat`)
+  - `FP_TUNER_OPENAI_BASE_URL` (default `https://api.openai.com/v1`)
+  - `FP_TUNER_OPENAI_ENDPOINT` (override full endpoint URL)
+  - `FP_TUNER_OPENAI_TIMEOUT_SEC` (default `30`)
+
+Local mock validation:
+
+- `scripts/test_fp_tuner_openai_command.sh`

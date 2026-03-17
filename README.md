@@ -243,11 +243,27 @@ Related scripts:
 
 - `scripts/fp_tuner_provider_bridge.py`: local HTTP bridge (`/propose`)
 - `scripts/fp_tuner_provider_cmd_example.sh`: example command provider (stdin JSON -> stdout JSON)
+- `scripts/fp_tuner_provider_openai.sh`: OpenAI-compatible command provider (stdin JSON -> API call -> stdout JSON)
 
 You can replace `BRIDGE_COMMAND` with your own command that outputs proposal JSON:
 
 ```bash
-BRIDGE_COMMAND=\"/path/to/your-provider-command.sh\" ./scripts/test_fp_tuner_bridge_command.sh
+BRIDGE_COMMAND="/path/to/your-provider-command.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+OpenAI command provider example:
+
+```bash
+export FP_TUNER_OPENAI_API_KEY="<your-api-key>"
+export FP_TUNER_OPENAI_MODEL="<your-model-name>"
+
+BRIDGE_COMMAND="./scripts/fp_tuner_provider_openai.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+Local mock test for the OpenAI command provider:
+
+```bash
+./scripts/test_fp_tuner_openai_command.sh
 ```
 
 ---

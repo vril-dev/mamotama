@@ -244,11 +244,27 @@ SIMULATE=0 ./scripts/test_fp_tuner_mock.sh
 
 - `scripts/fp_tuner_provider_bridge.py`: ローカルHTTPブリッジ（`/propose`）
 - `scripts/fp_tuner_provider_cmd_example.sh`: サンプルのコマンドプロバイダ（stdin JSON -> stdout JSON）
+- `scripts/fp_tuner_provider_openai.sh`: OpenAI互換API向けコマンドプロバイダ（stdin JSON -> API呼び出し -> stdout JSON）
 
 独自コマンドに差し替える場合:
 
 ```bash
-BRIDGE_COMMAND=\"/path/to/your-provider-command.sh\" ./scripts/test_fp_tuner_bridge_command.sh
+BRIDGE_COMMAND="/path/to/your-provider-command.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+OpenAIコマンドプロバイダの利用例:
+
+```bash
+export FP_TUNER_OPENAI_API_KEY="<your-api-key>"
+export FP_TUNER_OPENAI_MODEL="<your-model-name>"
+
+BRIDGE_COMMAND="./scripts/fp_tuner_provider_openai.sh" ./scripts/test_fp_tuner_bridge_command.sh
+```
+
+OpenAIコマンドプロバイダのローカルモックテスト:
+
+```bash
+./scripts/test_fp_tuner_openai_command.sh
 ```
 
 ---
