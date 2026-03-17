@@ -182,6 +182,16 @@ MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30
 - Markdownサマリ: `gotestwaf-report-summary.md`
 - Key-Valueサマリ: `gotestwaf-report-summary.txt`
 
+### デプロイ例
+
+実用向けのサンプル構成を以下に用意しています:
+
+- `examples/nextjs`（Next.js フロントエンド）
+- `examples/wordpress`（WordPress + 高パラノイア CRS 設定）
+- `examples/api-gateway`（REST API + 厳しめレート制限プロファイル）
+
+共通の起動手順は `examples/README.md` を参照してください。
+
 ---
 
 ## API管理エンドポイント（/mamotama-api）

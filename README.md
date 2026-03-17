@@ -181,6 +181,16 @@ Reports are written to `data/logs/gotestwaf/`:
 - Markdown summary: `gotestwaf-report-summary.md`
 - Key-value summary: `gotestwaf-report-summary.txt`
 
+### Deployment Examples
+
+Practical example stacks are available under:
+
+- `examples/nextjs` (Next.js frontend)
+- `examples/wordpress` (WordPress + high-paranoia CRS setup)
+- `examples/api-gateway` (REST API + strict rate-limit profile)
+
+See `examples/README.md` for common setup flow.
+
 ---
 
 ## Admin API Endpoints (`/mamotama-api`)

@@ -43,3 +43,14 @@ data/logs/openresty/*
 !data/logs/openresty/empty
 data/logs/gotestwaf/*
 !data/logs/gotestwaf/empty
+
+# examples
+examples/*/.env
+examples/nextjs/app/node_modules/
+examples/api-gateway/api/node_modules/
+examples/*/data/rules/crs/*
+!examples/*/data/rules/crs/.gitkeep
+examples/*/data/logs/coraza/*
+!examples/*/data/logs/coraza/empty
+examples/*/data/logs/openresty/*
+!examples/*/data/logs/openresty/empty
