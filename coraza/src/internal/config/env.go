@@ -38,6 +38,9 @@ var (
 	FPTunerModel            string
 	FPTunerTimeout          time.Duration
 	FPTunerMockResponseFile string
+	FPTunerRequireApproval  bool
+	FPTunerApprovalTTL      time.Duration
+	FPTunerAuditFile        string
 )
 
 func LoadEnv() {
@@ -111,6 +114,16 @@ func LoadEnv() {
 		timeoutSec = 15
 	}
 	FPTunerTimeout = time.Duration(timeoutSec) * time.Second
+	FPTunerRequireApproval = !isFalsy(os.Getenv("WAF_FP_TUNER_REQUIRE_APPROVAL"))
+	approvalTTLSec := parseIntDefault(os.Getenv("WAF_FP_TUNER_APPROVAL_TTL_SEC"), 600)
+	if approvalTTLSec < 10 || approvalTTLSec > 86400 {
+		approvalTTLSec = 600
+	}
+	FPTunerApprovalTTL = time.Duration(approvalTTLSec) * time.Second
+	FPTunerAuditFile = strings.TrimSpace(os.Getenv("WAF_FP_TUNER_AUDIT_FILE"))
+	if FPTunerAuditFile == "" {
+		FPTunerAuditFile = "logs/coraza/fp-tuner-audit.ndjson"
+	}
 
 	AllowInsecureDefaults = isTruthy(os.Getenv("WAF_ALLOW_INSECURE_DEFAULTS"))
 	enforceSecureDefaults()

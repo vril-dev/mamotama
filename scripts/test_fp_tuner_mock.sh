@@ -46,7 +46,12 @@ curl -fsS "${headers[@]}" \
 echo
 
 echo "==> Apply"
-apply_payload="$(jq -c --argjson simulate "$([[ "$SIMULATE" == "1" ]] && echo true || echo false)" '{proposal: .proposal, simulate: $simulate}' "$RESP_FILE")"
+apply_payload="$(jq -c --argjson simulate "$([[ "$SIMULATE" == "1" ]] && echo true || echo false)" '
+  {
+    proposal: .proposal,
+    simulate: $simulate,
+    approval_token: (.approval.token // "")
+  }' "$RESP_FILE")"
 curl -fsS "${headers[@]}" \
   -X POST "$API_BASE/fp-tuner/apply" \
   --data "$apply_payload"

@@ -2,6 +2,8 @@ package handler
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,9 +11,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +30,7 @@ const (
 	fpTunerDefaultConfidence    = 0.82
 	fpTunerMaxMatchedValueBytes = 512
 	fpTunerMaxBodyBytes         = int64(1 * 1024 * 1024)
+	fpTunerApprovalTokenBytes   = 24
 )
 
 var (
@@ -37,6 +42,16 @@ var (
 	fpTunerMaskIPv4        = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 	fpTunerMaskSecretKV    = regexp.MustCompile(`(?i)\b(token|access_token|refresh_token|api_key|apikey|password|passwd|secret)=([^&\s]+)`)
 	fpTunerMaskLongToken   = regexp.MustCompile(`\b[A-Za-z0-9._~+/=-]{24,}\b`)
+)
+
+type fpApprovalEntry struct {
+	ProposalHash string
+	ExpiresAt    time.Time
+}
+
+var (
+	fpApprovalMu    sync.Mutex
+	fpApprovalStore = map[string]fpApprovalEntry{}
 )
 
 type fpTunerEventInput struct {
@@ -78,8 +93,9 @@ type fpTunerProviderResponse struct {
 }
 
 type fpTunerApplyBody struct {
-	Proposal fpTunerProposal `json:"proposal"`
-	Simulate *bool           `json:"simulate,omitempty"`
+	Proposal      fpTunerProposal `json:"proposal"`
+	Simulate      *bool           `json:"simulate,omitempty"`
+	ApprovalToken string          `json:"approval_token,omitempty"`
 }
 
 func ProposeFPTuning(c *gin.Context) {
@@ -129,13 +145,40 @@ func ProposeFPTuning(c *gin.Context) {
 		return
 	}
 
+	approvalRequired := config.FPTunerRequireApproval
+	approvalToken := ""
+	if approvalRequired {
+		issued, issueErr := issueFPTunerApprovalToken(proposal)
+		if issueErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"ok":    false,
+				"error": fmt.Sprintf("failed to issue approval token: %v", issueErr),
+			})
+			return
+		}
+		approvalToken = issued
+	}
+
+	appendFPTunerAudit(c, "fp_tuner_propose", map[string]any{
+		"mode":              mode,
+		"source":            source,
+		"proposal_id":       proposal.ID,
+		"proposal_hash":     proposalHash(proposal),
+		"approval_required": approvalRequired,
+		"target_path":       proposal.TargetPath,
+	})
+
 	c.JSON(http.StatusOK, gin.H{
 		"ok":               true,
 		"contract_version": "fp_tuner.v1",
 		"mode":             mode,
 		"source":           source,
-		"input":            event,
-		"proposal":         proposal,
+		"approval": gin.H{
+			"required": approvalRequired,
+			"token":    approvalToken,
+		},
+		"input":    event,
+		"proposal": proposal,
 	})
 }
 
@@ -162,6 +205,11 @@ func ApplyFPTuning(c *gin.Context) {
 		return
 	}
 
+	simulate := true
+	if in.Simulate != nil {
+		simulate = *in.Simulate
+	}
+
 	curRaw, err := os.ReadFile(targetPath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -174,6 +222,13 @@ func ApplyFPTuning(c *gin.Context) {
 	}
 
 	if strings.Contains(string(curRaw), line) {
+		appendFPTunerAudit(c, "fp_tuner_apply_duplicate", map[string]any{
+			"proposal_id":    in.Proposal.ID,
+			"proposal_hash":  proposalHash(in.Proposal),
+			"target_path":    targetPath,
+			"simulate":       simulate,
+			"approval_token": in.ApprovalToken != "",
+		})
 		c.JSON(http.StatusOK, gin.H{
 			"ok":               true,
 			"contract_version": "fp_tuner.v1",
@@ -191,11 +246,32 @@ func ApplyFPTuning(c *gin.Context) {
 		return
 	}
 
-	simulate := true
-	if in.Simulate != nil {
-		simulate = *in.Simulate
+	if !simulate && config.FPTunerRequireApproval {
+		if err := consumeFPTunerApprovalToken(in.ApprovalToken, in.Proposal); err != nil {
+			appendFPTunerAudit(c, "fp_tuner_apply_denied", map[string]any{
+				"proposal_id":    in.Proposal.ID,
+				"proposal_hash":  proposalHash(in.Proposal),
+				"target_path":    targetPath,
+				"simulate":       false,
+				"approval_error": err.Error(),
+			})
+			c.JSON(http.StatusForbidden, gin.H{
+				"ok":               false,
+				"contract_version": "fp_tuner.v1",
+				"error":            fmt.Sprintf("approval required: %v", err),
+			})
+			return
+		}
 	}
+
 	if simulate {
+		appendFPTunerAudit(c, "fp_tuner_apply_simulate", map[string]any{
+			"proposal_id":    in.Proposal.ID,
+			"proposal_hash":  proposalHash(in.Proposal),
+			"target_path":    targetPath,
+			"simulate":       true,
+			"approval_token": in.ApprovalToken != "",
+		})
 		c.JSON(http.StatusOK, gin.H{
 			"ok":               true,
 			"contract_version": "fp_tuner.v1",
@@ -208,18 +284,39 @@ func ApplyFPTuning(c *gin.Context) {
 	}
 
 	if err := bypassconf.AtomicWriteWithBackup(targetPath, nextRaw); err != nil {
+		appendFPTunerAudit(c, "fp_tuner_apply_error", map[string]any{
+			"proposal_id":   in.Proposal.ID,
+			"proposal_hash": proposalHash(in.Proposal),
+			"target_path":   targetPath,
+			"simulate":      false,
+			"error":         err.Error(),
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if err := waf.ReloadBaseWAF(); err != nil {
 		_ = bypassconf.AtomicWriteWithBackup(targetPath, curRaw)
 		_ = waf.ReloadBaseWAF()
+		appendFPTunerAudit(c, "fp_tuner_apply_error", map[string]any{
+			"proposal_id":   in.Proposal.ID,
+			"proposal_hash": proposalHash(in.Proposal),
+			"target_path":   targetPath,
+			"simulate":      false,
+			"error":         fmt.Sprintf("reload failed and rollback applied: %v", err),
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": fmt.Sprintf("reload failed and rollback applied: %v", err),
 		})
 		return
 	}
 
+	appendFPTunerAudit(c, "fp_tuner_apply_success", map[string]any{
+		"proposal_id":   in.Proposal.ID,
+		"proposal_hash": proposalHash(in.Proposal),
+		"target_path":   targetPath,
+		"simulate":      false,
+		"hot_reloaded":  true,
+	})
 	c.JSON(http.StatusOK, gin.H{
 		"ok":               true,
 		"contract_version": "fp_tuner.v1",
@@ -427,6 +524,161 @@ func decodeFPTunerProviderResponse(raw []byte) (fpTunerProposal, error) {
 	}
 
 	return fpTunerProposal{}, fmt.Errorf("provider response must be fp_tuner proposal json")
+}
+
+func proposalHash(p fpTunerProposal) string {
+	h := sha256.Sum256([]byte(
+		strings.TrimSpace(p.ID) + "|" +
+			strings.TrimSpace(p.TargetPath) + "|" +
+			strings.TrimSpace(p.RuleLine),
+	))
+	return fmt.Sprintf("%x", h[:])
+}
+
+func issueFPTunerApprovalToken(proposal fpTunerProposal) (string, error) {
+	ttl := config.FPTunerApprovalTTL
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+
+	buf := make([]byte, fpTunerApprovalTokenBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	token := fmt.Sprintf("%x", buf)
+	digest := proposalHash(proposal)
+	expireAt := time.Now().UTC().Add(ttl)
+
+	fpApprovalMu.Lock()
+	defer fpApprovalMu.Unlock()
+	pruneExpiredFPTunerApprovals(time.Now().UTC())
+	fpApprovalStore[token] = fpApprovalEntry{
+		ProposalHash: digest,
+		ExpiresAt:    expireAt,
+	}
+
+	return token, nil
+}
+
+func consumeFPTunerApprovalToken(token string, proposal fpTunerProposal) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fmt.Errorf("missing approval_token")
+	}
+
+	now := time.Now().UTC()
+	digest := proposalHash(proposal)
+
+	fpApprovalMu.Lock()
+	defer fpApprovalMu.Unlock()
+	pruneExpiredFPTunerApprovals(now)
+
+	entry, ok := fpApprovalStore[token]
+	if !ok {
+		return fmt.Errorf("approval token is invalid or expired")
+	}
+	delete(fpApprovalStore, token)
+
+	if entry.ProposalHash != digest {
+		return fmt.Errorf("approval token does not match proposal")
+	}
+	if now.After(entry.ExpiresAt) {
+		return fmt.Errorf("approval token expired")
+	}
+	return nil
+}
+
+func pruneExpiredFPTunerApprovals(now time.Time) {
+	for k, v := range fpApprovalStore {
+		if now.After(v.ExpiresAt) {
+			delete(fpApprovalStore, k)
+		}
+	}
+}
+
+func appendFPTunerAudit(c *gin.Context, event string, fields map[string]any) {
+	path := strings.TrimSpace(config.FPTunerAuditFile)
+	if path == "" {
+		path = "/app/logs/coraza/fp-tuner-audit.ndjson"
+	}
+
+	entry := map[string]any{
+		"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+		"service": "coraza",
+		"event":   event,
+		"actor":   fpTunerActor(c),
+	}
+	if c != nil {
+		entry["ip"] = requestClientIP(c)
+	}
+	for k, v := range fields {
+		entry[k] = v
+	}
+	emitJSONLog(entry)
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		emitJSONLog(map[string]any{
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			"service": "coraza",
+			"level":   "WARN",
+			"event":   "fp_tuner_audit_write_error",
+			"path":    path,
+			"error":   err.Error(),
+		})
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		emitJSONLog(map[string]any{
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			"service": "coraza",
+			"level":   "WARN",
+			"event":   "fp_tuner_audit_write_error",
+			"path":    path,
+			"error":   err.Error(),
+		})
+		return
+	}
+	defer f.Close()
+
+	b, err := json.Marshal(entry)
+	if err != nil {
+		emitJSONLog(map[string]any{
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			"service": "coraza",
+			"level":   "WARN",
+			"event":   "fp_tuner_audit_write_error",
+			"path":    path,
+			"error":   err.Error(),
+		})
+		return
+	}
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		emitJSONLog(map[string]any{
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			"service": "coraza",
+			"level":   "WARN",
+			"event":   "fp_tuner_audit_write_error",
+			"path":    path,
+			"error":   err.Error(),
+		})
+	}
+}
+
+func fpTunerActor(c *gin.Context) string {
+	if c == nil {
+		return "unknown"
+	}
+	if actor := strings.TrimSpace(c.GetHeader("X-Mamotama-Actor")); actor != "" {
+		return actor
+	}
+	key := strings.TrimSpace(c.GetHeader("X-API-Key"))
+	if key == "" {
+		return "api-key:none"
+	}
+	sum := sha256.Sum256([]byte(key))
+	return fmt.Sprintf("api-key:sha256:%x", sum[:6])
 }
 
 func decodeJSONBodyStrict(c *gin.Context, out any) error {

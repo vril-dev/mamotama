@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"mamotama/internal/config"
 )
 
 func TestDecodeFPTunerProviderResponseWrapped(t *testing.T) {
@@ -113,5 +115,77 @@ func TestDecodeJSONBodyStrictSingleObject(t *testing.T) {
 	}
 	if payload.Proposal.ID != "fp-1" {
 		t.Fatalf("proposal id mismatch: %q", payload.Proposal.ID)
+	}
+}
+
+func TestProposalHashStable(t *testing.T) {
+	p := fpTunerProposal{
+		ID:         "fp-1",
+		TargetPath: "rules/mamotama.conf",
+		RuleLine:   `SecRule REQUEST_URI "@beginsWith /search" "id:190123,phase:1,pass,nolog,ctl:ruleRemoveTargetById=100004;ARGS:q,msg:'mamotama fp_tuner scoped exclusion'"`,
+	}
+	h1 := proposalHash(p)
+	h2 := proposalHash(p)
+	if h1 == "" || h1 != h2 {
+		t.Fatalf("proposalHash should be stable and non-empty: %q %q", h1, h2)
+	}
+}
+
+func TestApprovalTokenLifecycle(t *testing.T) {
+	prevTTL := config.FPTunerApprovalTTL
+	config.FPTunerApprovalTTL = 60 * time.Second
+	defer func() { config.FPTunerApprovalTTL = prevTTL }()
+
+	fpApprovalMu.Lock()
+	fpApprovalStore = map[string]fpApprovalEntry{}
+	fpApprovalMu.Unlock()
+
+	proposal := fpTunerProposal{
+		ID:         "fp-1",
+		TargetPath: "rules/mamotama.conf",
+		RuleLine:   `SecRule REQUEST_URI "@beginsWith /search" "id:190123,phase:1,pass,nolog,ctl:ruleRemoveTargetById=100004;ARGS:q,msg:'mamotama fp_tuner scoped exclusion'"`,
+	}
+	token, err := issueFPTunerApprovalToken(proposal)
+	if err != nil {
+		t.Fatalf("issueFPTunerApprovalToken error: %v", err)
+	}
+	if token == "" {
+		t.Fatal("approval token should not be empty")
+	}
+
+	if err := consumeFPTunerApprovalToken(token, proposal); err != nil {
+		t.Fatalf("consumeFPTunerApprovalToken first call error: %v", err)
+	}
+	if err := consumeFPTunerApprovalToken(token, proposal); err == nil {
+		t.Fatal("consumeFPTunerApprovalToken should reject reused token")
+	}
+}
+
+func TestApprovalTokenProposalMismatch(t *testing.T) {
+	prevTTL := config.FPTunerApprovalTTL
+	config.FPTunerApprovalTTL = 60 * time.Second
+	defer func() { config.FPTunerApprovalTTL = prevTTL }()
+
+	fpApprovalMu.Lock()
+	fpApprovalStore = map[string]fpApprovalEntry{}
+	fpApprovalMu.Unlock()
+
+	p1 := fpTunerProposal{
+		ID:         "fp-1",
+		TargetPath: "rules/mamotama.conf",
+		RuleLine:   `SecRule REQUEST_URI "@beginsWith /search" "id:190123,phase:1,pass,nolog,ctl:ruleRemoveTargetById=100004;ARGS:q,msg:'mamotama fp_tuner scoped exclusion'"`,
+	}
+	p2 := fpTunerProposal{
+		ID:         "fp-2",
+		TargetPath: "rules/mamotama.conf",
+		RuleLine:   `SecRule REQUEST_URI "@beginsWith /users" "id:190124,phase:1,pass,nolog,ctl:ruleRemoveTargetById=100004;ARGS:q,msg:'mamotama fp_tuner scoped exclusion'"`,
+	}
+
+	token, err := issueFPTunerApprovalToken(p1)
+	if err != nil {
+		t.Fatalf("issueFPTunerApprovalToken error: %v", err)
+	}
+	if err := consumeFPTunerApprovalToken(token, p2); err == nil {
+		t.Fatal("consumeFPTunerApprovalToken should reject proposal mismatch")
 	}
 }

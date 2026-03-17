@@ -38,6 +38,10 @@ Notes:
   "contract_version": "fp_tuner.v1",
   "mode": "mock",
   "source": "request",
+  "approval": {
+    "required": true,
+    "token": "6f9d...token..."
+  },
   "input": {
     "event_id": "manual-test-001",
     "method": "GET",
@@ -59,6 +63,9 @@ Notes:
 }
 ```
 
+Notes:
+- `approval.required=true` means non-simulated apply requires `approval_token`.
+
 ## 2) Apply
 
 ### Request
@@ -70,13 +77,15 @@ Notes:
     "target_path": "rules/mamotama.conf",
     "rule_line": "SecRule REQUEST_URI \"@beginsWith /search\" \"id:190123,phase:1,pass,nolog,ctl:ruleRemoveTargetById=100004;ARGS:q,msg:'mamotama fp_tuner scoped exclusion'\""
   },
-  "simulate": true
+  "simulate": true,
+  "approval_token": "6f9d...token..."
 }
 ```
 
 Notes:
 - `simulate` defaults to `true`.
 - `rule_line` is validated against a strict allow-list pattern.
+- When `WAF_FP_TUNER_REQUIRE_APPROVAL=true` and `simulate=false`, `approval_token` is required.
 
 ### Response (simulate)
 
@@ -108,3 +117,11 @@ Notes:
 - Provider request payload is sanitized before external send.
 - Masked categories include bearer/jwt-like tokens, email, IPv4, and common secret query keys.
 - Only scoped exclusion format is accepted for apply.
+- Propose/apply actions are appended to `WAF_FP_TUNER_AUDIT_FILE` (default `logs/coraza/fp-tuner-audit.ndjson`).
+- Ensure the audit path is writable by the runtime UID/GID (`PUID`/`GUID`).
+
+## Related Env Vars
+
+- `WAF_FP_TUNER_REQUIRE_APPROVAL` (`true` by default)
+- `WAF_FP_TUNER_APPROVAL_TTL_SEC` (default `600`)
+- `WAF_FP_TUNER_AUDIT_FILE` (default `logs/coraza/fp-tuner-audit.ndjson`)
