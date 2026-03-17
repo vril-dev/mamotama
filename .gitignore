@@ -41,3 +41,5 @@ data/logs/coraza/*
 !data/logs/coraza/empty
 data/logs/openresty/*
 !data/logs/openresty/empty
+data/logs/gotestwaf/*
+!data/logs/gotestwaf/empty

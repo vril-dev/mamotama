@@ -154,6 +154,24 @@ docker compose up -d coraza openresty
 
 You can change the root path by setting `VITE_APP_BASE_PATH` and `VITE_CORAZA_API_BASE` in `.env`.
 
+### WAF Regression Test (GoTestWAF)
+
+Run the local regression test:
+
+```bash
+./scripts/run_gotestwaf.sh
+```
+
+Default gate is `MIN_BLOCKED_RATIO=70`. Optional extra gates:
+
+```bash
+MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30 ./scripts/run_gotestwaf.sh
+```
+
+The script uses host port `18080` for OpenResty by default (to avoid conflict with `:80`), configurable via `HOST_OPENRESTY_PORT`.
+
+The JSON report and summaries are written under `data/logs/gotestwaf/`.
+
 ---
 
 ## Admin API Endpoints (`/mamotama-api`)

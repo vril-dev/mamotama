@@ -155,6 +155,24 @@ docker compose up -d coraza openresty
 
 環境変数 `.env` に `VITE_APP_BASE_PATH` および `VITE_CORAZA_API_BASE` を定義することで、ルートパスを変更できます。
 
+### WAF回帰テスト（GoTestWAF）
+
+ローカルで回帰テストを実行:
+
+```bash
+./scripts/run_gotestwaf.sh
+```
+
+デフォルトの合否基準は `MIN_BLOCKED_RATIO=70` です。追加基準は任意で指定できます:
+
+```bash
+MIN_TRUE_NEGATIVE_PASSED_RATIO=95 MAX_FALSE_POSITIVE_RATIO=5 MAX_BYPASS_RATIO=30 ./scripts/run_gotestwaf.sh
+```
+
+スクリプトは既定で OpenResty のホスト公開ポートに `18080` を使います（`:80` 競合回避）。`HOST_OPENRESTY_PORT` で変更できます。
+
+JSONレポートとサマリは `data/logs/gotestwaf/` に出力されます。
+
 ---
 
 ## API管理エンドポイント（/mamotama-api）
