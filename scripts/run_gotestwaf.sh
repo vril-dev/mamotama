@@ -10,6 +10,8 @@ SUMMARY_MD="${REPORT_DIR}/${REPORT_NAME}-summary.md"
 WAIT_TIMEOUT_SECONDS="${WAIT_TIMEOUT_SECONDS:-60}"
 HOST_OPENRESTY_PORT="${HOST_OPENRESTY_PORT:-18080}"
 HOST_CORAZA_PORT="${HOST_CORAZA_PORT:-19090}"
+HOST_PUID="${PUID:-$(id -u)}"
+HOST_GUID="${GUID:-$(id -g)}"
 
 MIN_BLOCKED_RATIO="${MIN_BLOCKED_RATIO:-70}"
 MIN_TRUE_NEGATIVE_PASSED_RATIO="${MIN_TRUE_NEGATIVE_PASSED_RATIO:-}"
@@ -27,7 +29,7 @@ require_cmd() {
 }
 
 compose() {
-  OPENRESTY_PORT="${HOST_OPENRESTY_PORT}" CORAZA_PORT="${HOST_CORAZA_PORT}" docker compose "${COMPOSE_ARGS[@]}" "$@"
+  PUID="${HOST_PUID}" GUID="${HOST_GUID}" OPENRESTY_PORT="${HOST_OPENRESTY_PORT}" CORAZA_PORT="${HOST_CORAZA_PORT}" docker compose "${COMPOSE_ARGS[@]}" "$@"
 }
 
 cleanup() {
@@ -86,12 +88,17 @@ if [[ "${AUTO_DOWN}" == "1" ]]; then
 fi
 
 echo "[gotestwaf] starting coraza/openresty"
+echo "[gotestwaf] using container uid:gid ${HOST_PUID}:${HOST_GUID}"
 compose up -d --build coraza openresty
 
 echo "[gotestwaf] waiting for openresty health endpoint (http://localhost:${HOST_OPENRESTY_PORT}/healthz, max ${WAIT_TIMEOUT_SECONDS}s)"
 if ! wait_for_openresty; then
   echo "[gotestwaf] openresty did not become healthy in time" >&2
   compose ps >&2 || true
+  echo "[gotestwaf] recent openresty logs:" >&2
+  compose logs --tail=120 openresty >&2 || true
+  echo "[gotestwaf] recent coraza logs:" >&2
+  compose logs --tail=120 coraza >&2 || true
   exit 1
 fi
 
