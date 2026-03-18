@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/bypassconf"
@@ -23,11 +24,7 @@ func bindSemanticPutBody(c *gin.Context) (semanticPutBody, bool) {
 
 func GetSemanticRules(c *gin.Context) {
 	path := GetSemanticPath()
-	raw, err := readConfigBlobOrFile(dbConfigKeySemanticRaw, path)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	raw, _ := os.ReadFile(path)
 	cfg := GetSemanticConfig()
 	stats := GetSemanticStats()
 
@@ -73,11 +70,7 @@ func ValidateSemanticRules(c *gin.Context) {
 func PutSemanticRules(c *gin.Context) {
 	path := GetSemanticPath()
 	ifMatch := c.GetHeader("If-Match")
-	curRaw, err := readConfigBlobOrFile(dbConfigKeySemanticRaw, path)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	curRaw, _ := os.ReadFile(path)
 	curETag := bypassconf.ComputeETag(curRaw)
 	if ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
@@ -95,20 +88,13 @@ func PutSemanticRules(c *gin.Context) {
 		return
 	}
 
-	if err := putConfigBlobIfEnabled(dbConfigKeySemanticRaw, in.Raw); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
 	if err := bypassconf.AtomicWriteWithBackup(path, []byte(in.Raw)); err != nil {
-		rollbackConfigBlobIfEnabled(dbConfigKeySemanticRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if err := ReloadSemantic(); err != nil {
 		_ = bypassconf.AtomicWriteWithBackup(path, curRaw)
 		_ = ReloadSemantic()
-		rollbackConfigBlobIfEnabled(dbConfigKeySemanticRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

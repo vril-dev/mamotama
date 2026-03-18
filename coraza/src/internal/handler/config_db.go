@@ -14,17 +14,7 @@ import (
 const (
 	dbConfigKeyBypassRaw       = "bypass.raw"
 	dbConfigKeyCountryBlockRaw = "country_block.raw"
-	dbConfigKeyRateLimitRaw    = "rate_limit.raw"
-	dbConfigKeyBotDefenseRaw   = "bot_defense.raw"
-	dbConfigKeySemanticRaw     = "semantic.raw"
 )
-
-type dbConfigMirrorSpec struct {
-	key     string
-	path    string
-	ensure  func(string) error
-	context string
-}
 
 func InitDBConfigMirrors() error {
 	store := getLogsStatsStore()
@@ -32,48 +22,21 @@ func InitDBConfigMirrors() error {
 		return nil
 	}
 
-	specs := []dbConfigMirrorSpec{
-		{
-			key:     dbConfigKeyBypassRaw,
-			path:    strings.TrimSpace(config.BypassFile),
-			ensure:  func(path string) error { return ensureTextFile(path, []byte("# <path> [extra-rule.conf]\n")) },
-			context: "bypass",
-		},
-		{
-			key:     dbConfigKeyCountryBlockRaw,
-			path:    strings.TrimSpace(config.CountryBlockFile),
-			ensure:  ensureCountryBlockFile,
-			context: "country block",
-		},
-		{
-			key:     dbConfigKeyRateLimitRaw,
-			path:    strings.TrimSpace(config.RateLimitFile),
-			ensure:  ensureRateLimitFile,
-			context: "rate limit",
-		},
-		{
-			key:     dbConfigKeyBotDefenseRaw,
-			path:    strings.TrimSpace(config.BotDefenseFile),
-			ensure:  ensureBotDefenseFile,
-			context: "bot defense",
-		},
-		{
-			key:     dbConfigKeySemanticRaw,
-			path:    strings.TrimSpace(config.SemanticFile),
-			ensure:  ensureSemanticFile,
-			context: "semantic",
-		},
+	if path := strings.TrimSpace(config.BypassFile); path != "" {
+		if err := ensureTextFile(path, []byte("# <path> [extra-rule.conf]\n")); err != nil {
+			return fmt.Errorf("ensure bypass file: %w", err)
+		}
+		if err := syncConfigBlobWithFile(store, dbConfigKeyBypassRaw, path); err != nil {
+			return fmt.Errorf("sync bypass config blob: %w", err)
+		}
 	}
 
-	for _, spec := range specs {
-		if spec.path == "" {
-			continue
+	if path := strings.TrimSpace(config.CountryBlockFile); path != "" {
+		if err := ensureCountryBlockFile(path); err != nil {
+			return fmt.Errorf("ensure country block file: %w", err)
 		}
-		if err := spec.ensure(spec.path); err != nil {
-			return fmt.Errorf("ensure %s file: %w", spec.context, err)
-		}
-		if err := syncConfigBlobWithFile(store, spec.key, spec.path); err != nil {
-			return fmt.Errorf("sync %s config blob: %w", spec.context, err)
+		if err := syncConfigBlobWithFile(store, dbConfigKeyCountryBlockRaw, path); err != nil {
+			return fmt.Errorf("sync country block config blob: %w", err)
 		}
 	}
 
