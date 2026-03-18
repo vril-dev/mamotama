@@ -563,13 +563,14 @@ GitHub Actions workflow `ci` validates:
 
 - `go test ./...` (`coraza/src`)
 - `docker compose config` sanity check
-- `./scripts/run_gotestwaf.sh` (`waf-test` job, `MIN_BLOCKED_RATIO=70`)
+- `./scripts/run_gotestwaf.sh` (`waf-test` matrix, `MIN_BLOCKED_RATIO=70`, `WAF_DB_ENABLED=false/true`)
 
 In production workflows, set these as required branch protection checks:
 
 - `ci / go-test`
 - `ci / compose-validate`
-- `ci / waf-test`
+- `ci / waf-test (file)`
+- `ci / waf-test (sqlite)`
 
 ---
 
@@ -579,6 +580,12 @@ See:
 
 - `docs/operations/waf-tuning.md`
 - `docs/operations/fp-tuner-api.md`
+
+## DB Operations
+
+SQLite operation notes:
+
+- `docs/operations/db-ops.md`
 
 ---
 

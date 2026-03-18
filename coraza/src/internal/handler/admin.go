@@ -16,6 +16,29 @@ import (
 func StatusHandler(c *gin.Context) {
 	semantic := GetSemanticConfig()
 	semanticStats := GetSemanticStats()
+	dbTotalRows := 0
+	dbWAFBlockRows := 0
+	dbSizeBytes := int64(0)
+	dbLastIngestOffset := int64(0)
+	dbLastIngestModTime := ""
+	dbLastSyncScannedLines := 0
+	dbStatusError := ""
+
+	if store := getLogsStatsStore(); store != nil {
+		if wafPath, ok := logFiles["waf"]; ok {
+			snapshot, err := store.StatusSnapshot(resolveLogPath("waf", wafPath))
+			if err != nil {
+				dbStatusError = err.Error()
+			} else {
+				dbTotalRows = snapshot.TotalRows
+				dbWAFBlockRows = snapshot.WAFBlockRows
+				dbSizeBytes = snapshot.DBSizeBytes
+				dbLastIngestOffset = snapshot.LastIngestOffset
+				dbLastIngestModTime = snapshot.LastIngestModTime
+				dbLastSyncScannedLines = snapshot.LastSyncScannedLines
+			}
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":                        "running",
@@ -53,6 +76,13 @@ func StatusHandler(c *gin.Context) {
 		"db_enabled":                    config.DBEnabled,
 		"db_path":                       config.DBPath,
 		"db_retention_days":             config.DBRetentionDays,
+		"db_total_rows":                 dbTotalRows,
+		"db_waf_block_rows":             dbWAFBlockRows,
+		"db_size_bytes":                 dbSizeBytes,
+		"db_last_ingest_offset":         dbLastIngestOffset,
+		"db_last_ingest_mod_time":       dbLastIngestModTime,
+		"db_last_sync_scanned_lines":    dbLastSyncScannedLines,
+		"db_status_error":               dbStatusError,
 		"allow_insecure_defaults":       config.AllowInsecureDefaults,
 	})
 }

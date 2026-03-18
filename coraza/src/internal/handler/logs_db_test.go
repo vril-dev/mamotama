@@ -370,6 +370,80 @@ func TestLatestWAFBlockEventUsesSQLiteStoreWhenLogFileMissing(t *testing.T) {
 	}
 }
 
+func TestWAFEventStoreStatusSnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":      now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-1",
+			"path":    "/a",
+			"rule_id": 942100,
+			"country": "JP",
+			"status":  403,
+		},
+		{
+			"ts":     now.Add(-1 * time.Minute).Format(time.RFC3339Nano),
+			"event":  "waf_hit_allow",
+			"req_id": "req-2",
+			"path":   "/b",
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStore(false, "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected sqlite store")
+	}
+
+	s1, err := store.StatusSnapshot(logPath)
+	if err != nil {
+		t.Fatalf("status snapshot first call: %v", err)
+	}
+	if s1.TotalRows != 2 {
+		t.Fatalf("total_rows=%d want=2", s1.TotalRows)
+	}
+	if s1.WAFBlockRows != 1 {
+		t.Fatalf("waf_block_rows=%d want=1", s1.WAFBlockRows)
+	}
+	if s1.DBSizeBytes <= 0 {
+		t.Fatalf("db_size_bytes=%d want>0", s1.DBSizeBytes)
+	}
+	if s1.LastIngestOffset <= 0 {
+		t.Fatalf("last_ingest_offset=%d want>0", s1.LastIngestOffset)
+	}
+	if s1.LastIngestModTime == "" {
+		t.Fatal("last_ingest_mod_time is empty")
+	}
+	if s1.LastSyncScannedLines != len(entries) {
+		t.Fatalf("first last_sync_scanned_lines=%d want=%d", s1.LastSyncScannedLines, len(entries))
+	}
+
+	s2, err := store.StatusSnapshot(logPath)
+	if err != nil {
+		t.Fatalf("status snapshot second call: %v", err)
+	}
+	if s2.LastSyncScannedLines != 0 {
+		t.Fatalf("second last_sync_scanned_lines=%d want=0", s2.LastSyncScannedLines)
+	}
+}
+
 func callLogsStats(t *testing.T, path string) logsStatsResp {
 	t.Helper()
 

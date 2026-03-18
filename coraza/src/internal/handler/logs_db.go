@@ -34,6 +34,7 @@ var (
 
 type wafEventStore struct {
 	db            *sql.DB
+	dbPath        string
 	mu            sync.Mutex
 	retentionDays int
 }
@@ -46,6 +47,15 @@ type logIngestState struct {
 
 type logSyncResult struct {
 	ScannedLines int
+}
+
+type wafEventStoreStatus struct {
+	TotalRows            int
+	WAFBlockRows         int
+	DBSizeBytes          int64
+	LastIngestOffset     int64
+	LastIngestModTime    string
+	LastSyncScannedLines int
 }
 
 func InitLogsStatsStore(enabled bool, dbPath string, retentionDays int) error {
@@ -149,7 +159,7 @@ func openWAFEventStore(dbPath string, retentionDays int) (*wafEventStore, error)
 	if retentionDays < 0 {
 		retentionDays = 0
 	}
-	return &wafEventStore{db: db, retentionDays: retentionDays}, nil
+	return &wafEventStore{db: db, dbPath: p, retentionDays: retentionDays}, nil
 }
 
 func ensureSQLiteColumn(db *sql.DB, table, column, definition string) error {
@@ -274,6 +284,51 @@ func (s *wafEventStore) BuildLogsStats(logPath string, rangeHours int, now time.
 	}
 
 	return base, nil
+}
+
+func (s *wafEventStore) StatusSnapshot(logPath string) (wafEventStoreStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	syncResult, err := s.syncWAFEvents(logPath)
+	if err != nil {
+		return wafEventStoreStatus{}, err
+	}
+
+	totalRows, err := s.queryCount(`SELECT COUNT(*) FROM waf_events`)
+	if err != nil {
+		return wafEventStoreStatus{}, err
+	}
+	wafBlockRows, err := s.queryCount(`SELECT COUNT(*) FROM waf_events WHERE event = 'waf_block'`)
+	if err != nil {
+		return wafEventStoreStatus{}, err
+	}
+
+	state, err := s.loadIngestState(logStatsStoreSourceWAF)
+	if err != nil {
+		return wafEventStoreStatus{}, err
+	}
+
+	dbSize := int64(0)
+	if s.dbPath != "" {
+		if fi, statErr := os.Stat(s.dbPath); statErr == nil {
+			dbSize = fi.Size()
+		}
+	}
+
+	modTime := ""
+	if state.ModTimeNS > 0 {
+		modTime = time.Unix(0, state.ModTimeNS).UTC().Format(time.RFC3339Nano)
+	}
+
+	return wafEventStoreStatus{
+		TotalRows:            totalRows,
+		WAFBlockRows:         wafBlockRows,
+		DBSizeBytes:          dbSize,
+		LastIngestOffset:     state.Offset,
+		LastIngestModTime:    modTime,
+		LastSyncScannedLines: syncResult.ScannedLines,
+	}, nil
 }
 
 func (s *wafEventStore) ReadWAFLogs(logPath string, tail int, cursor *int64, dir string) ([]logLine, *int64, bool, bool, error) {
