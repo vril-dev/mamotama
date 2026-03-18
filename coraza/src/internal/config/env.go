@@ -42,8 +42,9 @@ var (
 	FPTunerApprovalTTL      time.Duration
 	FPTunerAuditFile        string
 
-	DBEnabled bool
-	DBPath    string
+	DBEnabled       bool
+	DBPath          string
+	DBRetentionDays int
 )
 
 func LoadEnv() {
@@ -131,6 +132,13 @@ func LoadEnv() {
 	DBPath = strings.TrimSpace(os.Getenv("WAF_DB_PATH"))
 	if DBPath == "" {
 		DBPath = "logs/coraza/mamotama.db"
+	}
+	DBRetentionDays = parseIntDefault(os.Getenv("WAF_DB_RETENTION_DAYS"), 30)
+	if DBRetentionDays < 0 {
+		DBRetentionDays = 0
+	}
+	if DBRetentionDays > 3650 {
+		DBRetentionDays = 3650
 	}
 
 	AllowInsecureDefaults = isTruthy(os.Getenv("WAF_ALLOW_INSECURE_DEFAULTS"))

@@ -348,6 +348,14 @@ func latestWAFBlockEvent() (fpTunerEventInput, error) {
 	if !ok {
 		return fpTunerEventInput{}, fmt.Errorf("waf log source is not configured")
 	}
+	path = resolveLogPath("waf", path)
+
+	if store := getLogsStatsStore(); store != nil {
+		event, err := store.LatestWAFBlockEvent(path)
+		if err == nil {
+			return event, nil
+		}
+	}
 
 	lines, _, _, _, err := readByLine(path, 120, nil, "")
 	if err != nil {

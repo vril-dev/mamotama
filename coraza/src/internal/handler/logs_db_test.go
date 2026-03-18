@@ -1,11 +1,16 @@
 package handler
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,11 +55,11 @@ func TestLogsStatsSQLiteStoreAggregatesAndIngestsIncrementally(t *testing.T) {
 	defer restoreLogPath()
 
 	dbPath := filepath.Join(tmp, "mamotama.db")
-	if err := InitLogsStatsStore(true, dbPath); err != nil {
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
 		t.Fatalf("init sqlite store: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = InitLogsStatsStore(false, "")
+		_ = InitLogsStatsStore(false, "", 0)
 	})
 
 	first := callLogsStats(t, "/mamotama-api/logs/stats?hours=6")
@@ -96,6 +101,275 @@ func TestLogsStatsSQLiteStoreAggregatesAndIngestsIncrementally(t *testing.T) {
 	}
 }
 
+func TestLogsStatsSQLiteStoreRetentionPrunesOldEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":      now.Add(-40 * 24 * time.Hour).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"rule_id": 942100,
+			"path":    "/old",
+			"country": "JP",
+			"status":  403,
+			"req_id":  "req-old",
+		},
+		{
+			"ts":      now.Add(-30 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"rule_id": 920350,
+			"path":    "/new",
+			"country": "US",
+			"status":  403,
+			"req_id":  "req-new",
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStore(false, "", 0)
+	})
+
+	stats := callLogsStats(t, "/mamotama-api/logs/stats?hours=24")
+	if stats.WAFBlock.TotalInScan != 1 {
+		t.Fatalf("total_in_scan=%d want=1", stats.WAFBlock.TotalInScan)
+	}
+	read := callLogsRead(t, "/mamotama-api/logs/read?src=waf&tail=10")
+	if len(read.Lines) != 1 {
+		t.Fatalf("lines=%d want=1", len(read.Lines))
+	}
+	if got := anyToString(read.Lines[0]["req_id"]); got != "req-new" {
+		t.Fatalf("req_id=%q want=req-new", got)
+	}
+}
+
+func TestLogsReadUsesSQLiteStoreForWAF(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":      now.Add(-3 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-1",
+			"path":    "/a",
+			"rule_id": 942100,
+			"country": "JP",
+			"status":  403,
+		},
+		{
+			"ts":     now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			"event":  "waf_hit_allow",
+			"req_id": "req-2",
+			"path":   "/b",
+		},
+		{
+			"ts":      now.Add(-1 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-3",
+			"path":    "/c",
+			"rule_id": 920350,
+			"country": "US",
+			"status":  403,
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStore(false, "", 0)
+	})
+
+	first := callLogsRead(t, "/mamotama-api/logs/read?src=waf&tail=2")
+	if len(first.Lines) != 2 {
+		t.Fatalf("first lines=%d want=2", len(first.Lines))
+	}
+	if got := anyToString(first.Lines[0]["req_id"]); got != "req-2" {
+		t.Fatalf("first[0].req_id=%q want=req-2", got)
+	}
+	if got := anyToString(first.Lines[1]["req_id"]); got != "req-3" {
+		t.Fatalf("first[1].req_id=%q want=req-3", got)
+	}
+	if first.PageStart == nil {
+		t.Fatalf("first page_start is nil")
+	}
+
+	second := callLogsRead(t, "/mamotama-api/logs/read?src=waf&tail=2&dir=prev&cursor="+itoa64(*first.PageStart))
+	if len(second.Lines) != 1 {
+		t.Fatalf("second lines=%d want=1", len(second.Lines))
+	}
+	if got := anyToString(second.Lines[0]["req_id"]); got != "req-1" {
+		t.Fatalf("second[0].req_id=%q want=req-1", got)
+	}
+}
+
+func TestLogsDownloadUsesSQLiteStoreForWAF(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":      now.Add(-3 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-1",
+			"path":    "/a",
+			"rule_id": 942100,
+			"country": "JP",
+			"status":  403,
+		},
+		{
+			"ts":      "invalid-ts",
+			"event":   "waf_block",
+			"req_id":  "req-invalid",
+			"path":    "/invalid",
+			"rule_id": 999999,
+			"country": "JP",
+			"status":  403,
+		},
+		{
+			"ts":      now.Add(-1 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-2",
+			"path":    "/b",
+			"rule_id": 920350,
+			"country": "US",
+			"status":  403,
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStore(false, "", 0)
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/mamotama-api/logs/download?src=waf", nil)
+	LogsDownload(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	gr, err := gzip.NewReader(bytes.NewReader(w.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("new gzip reader: %v", err)
+	}
+	defer gr.Close()
+	raw, err := io.ReadAll(gr)
+	if err != nil {
+		t.Fatalf("read gzip payload: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("download lines=%d want=2 payload=%s", len(lines), string(raw))
+	}
+	if strings.Contains(string(raw), "req-invalid") {
+		t.Fatalf("invalid timestamp row should be filtered from download payload: %s", string(raw))
+	}
+}
+
+func TestLatestWAFBlockEventUsesSQLiteStoreWhenLogFileMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":               now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			"event":            "waf_block",
+			"req_id":           "req-1",
+			"path":             "/a",
+			"method":           "GET",
+			"rule_id":          942100,
+			"matched_variable": "ARGS:q",
+			"matched_value":    "foo",
+			"status":           403,
+		},
+		{
+			"ts":               now.Add(-1 * time.Minute).Format(time.RFC3339Nano),
+			"event":            "waf_block",
+			"req_id":           "req-2",
+			"path":             "/b",
+			"method":           "POST",
+			"rule_id":          920350,
+			"matched_variable": "ARGS:id",
+			"matched_value":    "bar",
+			"status":           403,
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStore(false, "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected sqlite store")
+	}
+	if _, err := store.BuildLogsStats(logPath, 6, now); err != nil {
+		t.Fatalf("seed sqlite store: %v", err)
+	}
+
+	if err := os.Remove(logPath); err != nil {
+		t.Fatalf("remove waf log file: %v", err)
+	}
+
+	event, err := latestWAFBlockEvent()
+	if err != nil {
+		t.Fatalf("latestWAFBlockEvent error: %v", err)
+	}
+	if event.EventID != "req-2" {
+		t.Fatalf("event_id=%q want=req-2", event.EventID)
+	}
+	if event.Path != "/b" {
+		t.Fatalf("path=%q want=/b", event.Path)
+	}
+	if event.RuleID != 920350 {
+		t.Fatalf("rule_id=%d want=920350", event.RuleID)
+	}
+}
+
 func callLogsStats(t *testing.T, path string) logsStatsResp {
 	t.Helper()
 
@@ -130,4 +404,27 @@ func appendNDJSONLine(t *testing.T, path string, entry map[string]any) {
 	if _, err := f.Write(append(line, '\n')); err != nil {
 		t.Fatalf("append ndjson entry: %v", err)
 	}
+}
+
+func callLogsRead(t *testing.T, path string) readResp {
+	t.Helper()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, path, nil)
+
+	LogsRead(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var out readResp
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return out
+}
+
+func itoa64(v int64) string {
+	return fmt.Sprintf("%d", v)
 }

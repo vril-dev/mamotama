@@ -50,6 +50,9 @@ func StatusHandler(c *gin.Context) {
 		"crs_setup_file":                config.CRSSetupFile,
 		"crs_rules_dir":                 config.CRSRulesDir,
 		"crs_disabled_file":             config.CRSDisabledFile,
+		"db_enabled":                    config.DBEnabled,
+		"db_path":                       config.DBPath,
+		"db_retention_days":             config.DBRetentionDays,
 		"allow_insecure_defaults":       config.AllowInsecureDefaults,
 	})
 }

@@ -21,16 +21,21 @@ import (
 
 const (
 	logStatsStoreSourceWAF = "waf"
+
+	maxDBMatchedValueBytes = 2048
 )
 
 var (
 	logStatsStoreMu sync.RWMutex
 	logStatsStore   *wafEventStore
+
+	errNoWAFBlockEvent = errors.New("no waf_block event found")
 )
 
 type wafEventStore struct {
-	db *sql.DB
-	mu sync.Mutex
+	db            *sql.DB
+	mu            sync.Mutex
+	retentionDays int
 }
 
 type logIngestState struct {
@@ -43,7 +48,7 @@ type logSyncResult struct {
 	ScannedLines int
 }
 
-func InitLogsStatsStore(enabled bool, dbPath string) error {
+func InitLogsStatsStore(enabled bool, dbPath string, retentionDays int) error {
 	logStatsStoreMu.Lock()
 	defer logStatsStoreMu.Unlock()
 
@@ -56,7 +61,7 @@ func InitLogsStatsStore(enabled bool, dbPath string) error {
 		return nil
 	}
 
-	store, err := openWAFEventStore(dbPath)
+	store, err := openWAFEventStore(dbPath, retentionDays)
 	if err != nil {
 		return err
 	}
@@ -70,7 +75,7 @@ func getLogsStatsStore() *wafEventStore {
 	return logStatsStore
 }
 
-func openWAFEventStore(dbPath string) (*wafEventStore, error) {
+func openWAFEventStore(dbPath string, retentionDays int) (*wafEventStore, error) {
 	p := strings.TrimSpace(dbPath)
 	if p == "" {
 		return nil, fmt.Errorf("db path is empty")
@@ -98,12 +103,18 @@ func openWAFEventStore(dbPath string) (*wafEventStore, error) {
 			country TEXT NOT NULL,
 			status INTEGER NOT NULL,
 			req_id TEXT,
+			method TEXT,
+			matched_variable TEXT,
+			matched_value TEXT,
+			raw_json TEXT NOT NULL,
 			line_hash TEXT NOT NULL UNIQUE
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_waf_events_ts_unix ON waf_events(ts_unix);`,
+		`CREATE INDEX IF NOT EXISTS idx_waf_events_event_ts ON waf_events(event, ts_unix);`,
 		`CREATE INDEX IF NOT EXISTS idx_waf_events_rule_id ON waf_events(rule_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_waf_events_path ON waf_events(path);`,
 		`CREATE INDEX IF NOT EXISTS idx_waf_events_country ON waf_events(country);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_waf_events_line_hash ON waf_events(line_hash);`,
 		`CREATE TABLE IF NOT EXISTS ingest_state (
 			source TEXT PRIMARY KEY,
 			offset INTEGER NOT NULL,
@@ -118,7 +129,71 @@ func openWAFEventStore(dbPath string) (*wafEventStore, error) {
 		}
 	}
 
-	return &wafEventStore{db: db}, nil
+	if err := ensureSQLiteColumn(db, "waf_events", "method", "TEXT"); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := ensureSQLiteColumn(db, "waf_events", "matched_variable", "TEXT"); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := ensureSQLiteColumn(db, "waf_events", "matched_value", "TEXT"); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := ensureSQLiteColumn(db, "waf_events", "raw_json", `TEXT NOT NULL DEFAULT '{}'`); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	if retentionDays < 0 {
+		retentionDays = 0
+	}
+	return &wafEventStore{db: db, retentionDays: retentionDays}, nil
+}
+
+func ensureSQLiteColumn(db *sql.DB, table, column, definition string) error {
+	hasColumn, err := sqliteHasColumn(db, table, column)
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, definition))
+	if err != nil {
+		return fmt.Errorf("add sqlite column %s.%s: %w", table, column, err)
+	}
+	return nil
+}
+
+func sqliteHasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			typeName string
+			notNull  int
+			defaultV any
+			pk       int
+		)
+		if err := rows.Scan(&cid, &name, &typeName, &notNull, &defaultV, &pk); err != nil {
+			return false, err
+		}
+		if strings.EqualFold(name, column) {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (s *wafEventStore) Close() error {
@@ -149,9 +224,6 @@ func (s *wafEventStore) BuildLogsStats(logPath string, rangeHours int, now time.
 
 	syncResult, err := s.syncWAFEvents(logPath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return base, nil
-		}
 		return logsStatsResp{}, err
 	}
 	base.ScannedLines = syncResult.ScannedLines
@@ -204,9 +276,201 @@ func (s *wafEventStore) BuildLogsStats(logPath string, rangeHours int, now time.
 	return base, nil
 }
 
+func (s *wafEventStore) ReadWAFLogs(logPath string, tail int, cursor *int64, dir string) ([]logLine, *int64, bool, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, err := s.syncWAFEvents(logPath); err != nil {
+		return nil, nil, false, false, err
+	}
+
+	totalLines, err := s.queryCount(`SELECT COUNT(*) FROM waf_events`)
+	if err != nil {
+		return nil, nil, false, false, err
+	}
+
+	var cur int
+	if cursor == nil {
+		if tail > totalLines {
+			cur = 0
+		} else {
+			cur = totalLines - tail
+		}
+	} else {
+		cur = int(*cursor)
+		if cur < 0 {
+			cur = 0
+		}
+		if cur > totalLines {
+			cur = totalLines
+		}
+	}
+
+	var start, end int
+	switch dir {
+	case "prev":
+		start, end = maxInt(cur-tail, 0), cur
+	case "next", "":
+		start, end = cur, minInt(cur+tail, totalLines)
+	default:
+		return nil, nil, false, false, fmt.Errorf("invalid dir")
+	}
+
+	if start >= end {
+		nextCur := int64(end)
+		return []logLine{}, &nextCur, start > 0, end < totalLines, nil
+	}
+
+	rows, err := s.db.Query(
+		`SELECT raw_json FROM waf_events ORDER BY id ASC LIMIT ? OFFSET ?`,
+		end-start,
+		start,
+	)
+	if err != nil {
+		return nil, nil, false, false, err
+	}
+	defer rows.Close()
+
+	out := make([]logLine, 0, end-start)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, nil, false, false, err
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, false, false, err
+	}
+
+	var nextCur int64
+	if dir == "prev" {
+		nextCur = int64(start)
+	} else {
+		nextCur = int64(end)
+	}
+	hasPrev := start > 0
+	hasNext := end < totalLines
+
+	return out, &nextCur, hasPrev, hasNext, nil
+}
+
+func (s *wafEventStore) DownloadWAFLogs(logPath string, w io.Writer, from, to time.Time, countryFilter string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, err := s.syncWAFEvents(logPath); err != nil {
+		return err
+	}
+
+	query := `SELECT raw_json FROM waf_events WHERE ts_unix >= 0`
+	args := make([]any, 0, 4)
+	if !from.IsZero() {
+		query += ` AND ts_unix >= ?`
+		args = append(args, from.UTC().Unix())
+	}
+	if !to.IsZero() {
+		query += ` AND ts_unix < ?`
+		args = append(args, to.UTC().Unix())
+	}
+	if countryFilter != "" {
+		query += ` AND country = ?`
+		args = append(args, countryFilter)
+	}
+	query += ` ORDER BY id ASC`
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, raw); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, "\n"); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func (s *wafEventStore) LatestWAFBlockEvent(logPath string) (fpTunerEventInput, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, err := s.syncWAFEvents(logPath); err != nil {
+		return fpTunerEventInput{}, err
+	}
+
+	row := s.db.QueryRow(`
+		SELECT req_id, ts, method, path, rule_id, status, matched_variable, matched_value
+		  FROM waf_events
+		 WHERE event = 'waf_block'
+		 ORDER BY id DESC
+		 LIMIT 1`)
+
+	var (
+		reqID           sql.NullString
+		observedAt      sql.NullString
+		method          sql.NullString
+		path            sql.NullString
+		ruleID          sql.NullString
+		status          sql.NullInt64
+		matchedVariable sql.NullString
+		matchedValue    sql.NullString
+	)
+	if err := row.Scan(
+		&reqID,
+		&observedAt,
+		&method,
+		&path,
+		&ruleID,
+		&status,
+		&matchedVariable,
+		&matchedValue,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fpTunerEventInput{}, errNoWAFBlockEvent
+		}
+		return fpTunerEventInput{}, err
+	}
+
+	event := fpTunerEventInput{
+		EventID:         nullString(reqID),
+		ObservedAt:      nullString(observedAt),
+		Method:          nullString(method),
+		Path:            nullString(path),
+		RuleID:          anyToInt(nullString(ruleID)),
+		Status:          int(status.Int64),
+		MatchedVariable: nullString(matchedVariable),
+		MatchedValue:    nullString(matchedValue),
+	}
+	return normalizeFPTunerEventInput(event), nil
+}
+
+func nullString(ns sql.NullString) string {
+	if !ns.Valid {
+		return ""
+	}
+	return strings.TrimSpace(ns.String)
+}
+
 func (s *wafEventStore) syncWAFEvents(logPath string) (logSyncResult, error) {
 	fi, err := os.Stat(logPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return logSyncResult{ScannedLines: 0}, nil
+		}
 		return logSyncResult{}, err
 	}
 
@@ -240,8 +504,9 @@ func (s *wafEventStore) syncWAFEvents(logPath string) (logSyncResult, error) {
 	}
 
 	stmt, err := tx.Prepare(`INSERT OR IGNORE INTO waf_events (
-		event, ts_unix, ts, rule_id, path, country, status, req_id, line_hash
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		event, ts_unix, ts, rule_id, path, country, status, req_id, method,
+		matched_variable, matched_value, raw_json, line_hash
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		_ = tx.Rollback()
 		return logSyncResult{}, err
@@ -287,6 +552,10 @@ func (s *wafEventStore) syncWAFEvents(logPath string) (logSyncResult, error) {
 		Size:      finalSize,
 		ModTimeNS: finalMod,
 	}
+	if err := s.pruneExpiredWAFEvents(tx, time.Now().UTC()); err != nil {
+		_ = tx.Rollback()
+		return logSyncResult{}, err
+	}
 	if err := saveIngestState(tx, logStatsStoreSourceWAF, nextState); err != nil {
 		_ = tx.Rollback()
 		return logSyncResult{}, err
@@ -309,34 +578,50 @@ func ingestWAFEventLine(stmt *sql.Stmt, rawLine []byte) error {
 		return nil
 	}
 
-	if strings.TrimSpace(logFieldString(m["event"])) != "waf_block" {
-		return nil
+	event := strings.TrimSpace(logFieldString(m["event"]))
+	if event == "" {
+		event = "unknown"
 	}
 
-	ts, ok := parseLogTS(m["ts"])
-	if !ok {
-		return nil
+	tsRaw := strings.TrimSpace(logFieldString(m["ts"]))
+	tsUnix := int64(-1)
+	tsNorm := tsRaw
+	if ts, ok := parseLogTS(m["ts"]); ok {
+		ts = ts.UTC()
+		tsUnix = ts.Unix()
+		tsNorm = ts.Format(time.RFC3339Nano)
 	}
-	ts = ts.UTC()
 
 	ruleID := normalizeStatsRuleID(m["rule_id"])
 	pathKey := normalizeStatsPath(m["path"])
 	country := normalizeCountryFromAny(m["country"])
 	status := anyToInt(m["status"])
 	reqID := strings.TrimSpace(anyToString(m["req_id"]))
+	method := strings.ToUpper(strings.TrimSpace(anyToString(m["method"])))
+	matchedVariable := strings.TrimSpace(anyToString(m["matched_variable"]))
+	matchedValue := clampText(strings.TrimSpace(anyToString(m["matched_value"])), maxDBMatchedValueBytes)
+
+	rawJSON, err := json.Marshal(m)
+	if err != nil {
+		rawJSON = line
+	}
 
 	hash := sha256.Sum256(line)
 	lineHash := hex.EncodeToString(hash[:])
 
-	_, err := stmt.Exec(
-		"waf_block",
-		ts.Unix(),
-		ts.Format(time.RFC3339Nano),
+	_, err = stmt.Exec(
+		event,
+		tsUnix,
+		tsNorm,
 		ruleID,
 		pathKey,
 		country,
 		status,
 		reqID,
+		method,
+		matchedVariable,
+		matchedValue,
+		string(rawJSON),
 		lineHash,
 	)
 	return err
@@ -367,6 +652,18 @@ func saveIngestState(tx *sql.Tx, source string, st logIngestState) error {
 		st.Offset,
 		st.Size,
 		st.ModTimeNS,
+	)
+	return err
+}
+
+func (s *wafEventStore) pruneExpiredWAFEvents(tx *sql.Tx, now time.Time) error {
+	if s == nil || s.retentionDays <= 0 {
+		return nil
+	}
+	cutoffUnix := now.AddDate(0, 0, -s.retentionDays).Unix()
+	_, err := tx.Exec(
+		`DELETE FROM waf_events WHERE ts_unix >= 0 AND ts_unix < ?`,
+		cutoffUnix,
 	)
 	return err
 }
@@ -453,7 +750,9 @@ func (s *wafEventStore) queryMinMaxTS() (int64, int64, error) {
 	var minTS sql.NullInt64
 	var maxTS sql.NullInt64
 	if err := s.db.QueryRow(
-		`SELECT MIN(ts_unix), MAX(ts_unix) FROM waf_events WHERE event = 'waf_block'`,
+		`SELECT MIN(ts_unix), MAX(ts_unix)
+		   FROM waf_events
+		  WHERE event = 'waf_block' AND ts_unix >= 0`,
 	).Scan(&minTS, &maxTS); err != nil {
 		return 0, 0, err
 	}
