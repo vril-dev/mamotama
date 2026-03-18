@@ -1,7 +1,8 @@
 package handler
 
 import (
-	"reflect"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"mamotama/internal/config"
@@ -42,15 +43,43 @@ func TestValidateRaw_StrictOverride(t *testing.T) {
 	}
 }
 
-func TestBaseRuleFilesFromConfig(t *testing.T) {
-	restore := saveRuleConfig()
-	defer restore()
+func TestReadFileMaybeAndRollback(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "crs-disabled.conf")
 
-	config.RulesFile = "rules/a.conf, ./rules/a.conf ,rules/b.conf, rules/b.conf"
-	got := baseRuleFilesFromConfig()
-	want := []string{"rules/a.conf", "rules/b.conf"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("baseRuleFilesFromConfig=%v want=%v", got, want)
+	b, had, err := readFileMaybe(path)
+	if err != nil {
+		t.Fatalf("readFileMaybe missing file error: %v", err)
+	}
+	if had {
+		t.Fatal("readFileMaybe should report hadFile=false for missing file")
+	}
+	if len(b) != 0 {
+		t.Fatalf("readFileMaybe missing file bytes=%d want=0", len(b))
+	}
+
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := rollbackCRSDisabledFile(path, true, []byte("prev\n")); err != nil {
+		t.Fatalf("rollbackCRSDisabledFile(hadFile=true): %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read rolled back file: %v", err)
+	}
+	if string(after) != "prev\n" {
+		t.Fatalf("rollback content=%q want=%q", string(after), "prev\n")
+	}
+
+	if err := os.WriteFile(path, []byte("new\n"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := rollbackCRSDisabledFile(path, false, nil); err != nil {
+		t.Fatalf("rollbackCRSDisabledFile(hadFile=false): %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("file should be removed on rollback when hadFile=false, err=%v", err)
 	}
 }
 

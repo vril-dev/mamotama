@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -178,4 +179,25 @@ func PutCRSRuleSets(c *gin.Context) {
 		"hot_reloaded":   true,
 		"disabled_count": len(disabledNames),
 	})
+}
+
+func readFileMaybe(path string) ([]byte, bool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []byte{}, false, nil
+		}
+		return nil, false, err
+	}
+	return b, true, nil
+}
+
+func rollbackCRSDisabledFile(path string, hadFile bool, previous []byte) error {
+	if hadFile {
+		return bypassconf.AtomicWriteWithBackup(path, previous)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
