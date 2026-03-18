@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"os"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/bypassconf"
@@ -24,7 +23,11 @@ func bindBotDefensePutBody(c *gin.Context) (botDefensePutBody, bool) {
 
 func GetBotDefenseRules(c *gin.Context) {
 	path := GetBotDefensePath()
-	raw, _ := os.ReadFile(path)
+	raw, err := readConfigBlobOrFile(dbConfigKeyBotDefenseRaw, path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	cfg := GetBotDefenseConfig()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -60,7 +63,11 @@ func ValidateBotDefenseRules(c *gin.Context) {
 func PutBotDefenseRules(c *gin.Context) {
 	path := GetBotDefensePath()
 	ifMatch := c.GetHeader("If-Match")
-	curRaw, _ := os.ReadFile(path)
+	curRaw, err := readConfigBlobOrFile(dbConfigKeyBotDefenseRaw, path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	curETag := bypassconf.ComputeETag(curRaw)
 	if ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
@@ -78,13 +85,20 @@ func PutBotDefenseRules(c *gin.Context) {
 		return
 	}
 
+	if err := putConfigBlobIfEnabled(dbConfigKeyBotDefenseRaw, in.Raw); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	if err := bypassconf.AtomicWriteWithBackup(path, []byte(in.Raw)); err != nil {
+		rollbackConfigBlobIfEnabled(dbConfigKeyBotDefenseRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if err := ReloadBotDefense(); err != nil {
 		_ = bypassconf.AtomicWriteWithBackup(path, curRaw)
 		_ = ReloadBotDefense()
+		rollbackConfigBlobIfEnabled(dbConfigKeyBotDefenseRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

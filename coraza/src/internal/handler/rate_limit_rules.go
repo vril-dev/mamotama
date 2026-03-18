@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"os"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/bypassconf"
@@ -24,7 +23,11 @@ func bindRateLimitPutBody(c *gin.Context) (rateLimitPutBody, bool) {
 
 func GetRateLimitRules(c *gin.Context) {
 	path := GetRateLimitPath()
-	raw, _ := os.ReadFile(path)
+	raw, err := readConfigBlobOrFile(dbConfigKeyRateLimitRaw, path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	cfg := GetRateLimitConfig()
 	c.JSON(http.StatusOK, gin.H{
 		"etag":    bypassconf.ComputeETag(raw),
@@ -57,7 +60,11 @@ func ValidateRateLimitRules(c *gin.Context) {
 func PutRateLimitRules(c *gin.Context) {
 	path := GetRateLimitPath()
 	ifMatch := c.GetHeader("If-Match")
-	curRaw, _ := os.ReadFile(path)
+	curRaw, err := readConfigBlobOrFile(dbConfigKeyRateLimitRaw, path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	curETag := bypassconf.ComputeETag(curRaw)
 	if ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
@@ -75,7 +82,13 @@ func PutRateLimitRules(c *gin.Context) {
 		return
 	}
 
+	if err := putConfigBlobIfEnabled(dbConfigKeyRateLimitRaw, in.Raw); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	if err := bypassconf.AtomicWriteWithBackup(path, []byte(in.Raw)); err != nil {
+		rollbackConfigBlobIfEnabled(dbConfigKeyRateLimitRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -83,6 +96,7 @@ func PutRateLimitRules(c *gin.Context) {
 	if err := ReloadRateLimit(); err != nil {
 		_ = bypassconf.AtomicWriteWithBackup(path, curRaw)
 		_ = ReloadRateLimit()
+		rollbackConfigBlobIfEnabled(dbConfigKeyRateLimitRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
