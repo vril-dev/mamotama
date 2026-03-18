@@ -204,14 +204,13 @@ func ApplyFPTuning(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
 		return
 	}
-	dbKey := dbConfigKeyRuleRaw(targetPath)
 
 	simulate := true
 	if in.Simulate != nil {
 		simulate = *in.Simulate
 	}
 
-	curRaw, err := readConfigBlobOrFile(dbKey, targetPath)
+	curRaw, err := os.ReadFile(targetPath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -284,20 +283,7 @@ func ApplyFPTuning(c *gin.Context) {
 		return
 	}
 
-	if err := putConfigBlobIfEnabled(dbKey, string(nextRaw)); err != nil {
-		appendFPTunerAudit(c, "fp_tuner_apply_error", map[string]any{
-			"proposal_id":   in.Proposal.ID,
-			"proposal_hash": proposalHash(in.Proposal),
-			"target_path":   targetPath,
-			"simulate":      false,
-			"error":         err.Error(),
-		})
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
 	if err := bypassconf.AtomicWriteWithBackup(targetPath, nextRaw); err != nil {
-		rollbackConfigBlobIfEnabled(dbKey, string(curRaw))
 		appendFPTunerAudit(c, "fp_tuner_apply_error", map[string]any{
 			"proposal_id":   in.Proposal.ID,
 			"proposal_hash": proposalHash(in.Proposal),
@@ -311,7 +297,6 @@ func ApplyFPTuning(c *gin.Context) {
 	if err := waf.ReloadBaseWAF(); err != nil {
 		_ = bypassconf.AtomicWriteWithBackup(targetPath, curRaw)
 		_ = waf.ReloadBaseWAF()
-		rollbackConfigBlobIfEnabled(dbKey, string(curRaw))
 		appendFPTunerAudit(c, "fp_tuner_apply_error", map[string]any{
 			"proposal_id":   in.Proposal.ID,
 			"proposal_hash": proposalHash(in.Proposal),

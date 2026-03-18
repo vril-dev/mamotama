@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -92,7 +93,7 @@ func RulesHandler(c *gin.Context) {
 	out := make([]gin.H, 0, len(files))
 
 	for _, path := range files {
-		content, err := readConfigBlobOrFile(dbConfigKeyRuleRaw(path), path)
+		content, err := os.ReadFile(path)
 		if err != nil {
 			result[path] = "[読込失敗] " + err.Error()
 			out = append(out, gin.H{
@@ -156,8 +157,7 @@ func PutRules(c *gin.Context) {
 		return
 	}
 
-	dbKey := dbConfigKeyRuleRaw(target)
-	curRaw, err := readConfigBlobOrFile(dbKey, target)
+	curRaw, err := os.ReadFile(target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -173,13 +173,7 @@ func PutRules(c *gin.Context) {
 		return
 	}
 
-	if err := putConfigBlobIfEnabled(dbKey, in.Raw); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
 	if err := bypassconf.AtomicWriteWithBackup(target, []byte(in.Raw)); err != nil {
-		rollbackConfigBlobIfEnabled(dbKey, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -187,7 +181,6 @@ func PutRules(c *gin.Context) {
 	if err := waf.ReloadBaseWAF(); err != nil {
 		_ = bypassconf.AtomicWriteWithBackup(target, curRaw)
 		_ = waf.ReloadBaseWAF()
-		rollbackConfigBlobIfEnabled(dbKey, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": fmt.Sprintf("reload failed and rollback applied: %v", err),
 		})
