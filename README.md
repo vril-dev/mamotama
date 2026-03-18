@@ -587,6 +587,14 @@ SQLite operation notes:
 
 - `docs/operations/db-ops.md`
 
+Quick commands:
+
+```bash
+./scripts/db_ops.sh info
+./scripts/db_ops.sh backup
+./scripts/db_ops.sh restore data/logs/coraza/backups/<backup-file>.db
+```
+
 ---
 
 ## Disclaimer

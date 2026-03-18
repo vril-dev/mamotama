@@ -589,6 +589,14 @@ SQLite 運用手順は以下を参照してください。
 
 - `docs/operations/db-ops.md`
 
+主要コマンド:
+
+```bash
+./scripts/db_ops.sh info
+./scripts/db_ops.sh backup
+./scripts/db_ops.sh restore data/logs/coraza/backups/<backup-file>.db
+```
+
 ---
 
 ## 免責事項

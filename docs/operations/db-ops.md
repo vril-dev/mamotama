@@ -21,6 +21,13 @@ Related env vars:
 - `/mamotama-api/logs/download?src=waf`
 - FP tuner latest-event lookup
 
+`waf_config_blobs` stores editable runtime config snapshots for:
+
+- `rules` (base rule files from `WAF_RULES_FILE`)
+- `bypass`, `country-block`, `rate-limit`
+- `bot-defense`, `semantic`
+- `cache`, `crs-disabled`
+
 ## Retention
 
 Use `WAF_DB_RETENTION_DAYS` to control automatic pruning.
@@ -30,36 +37,45 @@ Use `WAF_DB_RETENTION_DAYS` to control automatic pruning.
 
 Pruning runs during DB sync (on API calls touching WAF DB pipeline).
 
-## Backup
+## Backup / Restore Script
 
-Recommended: snapshot before major rule/config changes.
-
-```bash
-cp data/logs/coraza/mamotama.db data/logs/coraza/mamotama.db.bak.$(date +%Y%m%d%H%M%S)
-```
-
-If WAL files exist, back up them together:
+Use `scripts/db_ops.sh`:
 
 ```bash
-cp data/logs/coraza/mamotama.db-wal data/logs/coraza/mamotama.db-wal.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
-cp data/logs/coraza/mamotama.db-shm data/logs/coraza/mamotama.db-shm.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
+# Show resolved DB path and file status
+./scripts/db_ops.sh info
+
+# Create backup (default: data/logs/coraza/backups/mamotama-<timestamp>.db)
+./scripts/db_ops.sh backup
+
+# Or specify backup output path
+./scripts/db_ops.sh backup data/logs/coraza/backups/manual.db
+
+# Restore from backup (run while coraza is stopped)
+./scripts/db_ops.sh restore data/logs/coraza/backups/manual.db
 ```
+
+Behavior:
+
+- If `sqlite3` is available, `backup` uses `.backup` for online-safe snapshots.
+- If `sqlite3` is not available, it copies `db` and optional `-wal`/`-shm`.
+- Relative `WAF_DB_PATH` like `logs/coraza/mamotama.db` is mapped to `data/logs/coraza/mamotama.db`.
 
 ## Vacuum / Size Maintenance
 
-When DB file grows after heavy tests, run `VACUUM` with SQLite CLI:
+When DB file grows after heavy tests:
 
 ```bash
-sqlite3 data/logs/coraza/mamotama.db "PRAGMA wal_checkpoint(TRUNCATE); VACUUM;"
+./scripts/db_ops.sh vacuum
 ```
 
 ## Recovery
 
 If DB is corrupted or missing:
 
-1. Stop stack (`docker compose down`).
-2. Move broken DB file aside.
+1. Stop `coraza` (`docker compose stop coraza`).
+2. Restore from a known-good backup (`./scripts/db_ops.sh restore <backup_file>`), or move broken DB aside.
 3. Start stack again (`docker compose up -d coraza nginx`).
-4. Call `/mamotama-api/logs/stats` once to trigger re-ingest from `waf-events.ndjson`.
+4. Call `/mamotama-api/logs/stats` once to trigger re-ingest from `waf-events.ndjson` if needed.
 
 Rebuild depends on remaining `waf-events.ndjson` history.
