@@ -244,6 +244,125 @@ func TestInitDBConfigMirrors_SyncsDBBlobToConfigFiles(t *testing.T) {
 	}
 }
 
+func TestInitDBConfigMirrors_RestoresBlobAfterStoreReopen(t *testing.T) {
+	restore := saveDBMirrorConfig()
+	defer restore()
+
+	tmp := t.TempDir()
+	bypassPath := filepath.Join(tmp, "bypass.conf")
+	countryBlockPath := filepath.Join(tmp, "country-block.conf")
+	rateLimitPath := filepath.Join(tmp, "rate-limit.conf")
+	botDefensePath := filepath.Join(tmp, "bot-defense.conf")
+	semanticPath := filepath.Join(tmp, "semantic.conf")
+	crsDisabledPath := filepath.Join(tmp, "crs-disabled.conf")
+	cachePath := filepath.Join(tmp, "cache.conf")
+	rulePath := filepath.Join(tmp, "rules", "custom.conf")
+
+	if err := os.MkdirAll(filepath.Dir(rulePath), 0o755); err != nil {
+		t.Fatalf("mkdir rule dir: %v", err)
+	}
+
+	fileSeeds := map[string]string{
+		bypassPath:       "/seed\n",
+		countryBlockPath: "JP\n",
+		rateLimitPath:    "{\"enabled\":false}\n",
+		botDefensePath:   "{\"enabled\":false,\"mode\":\"log_only\"}\n",
+		semanticPath:     "{\"enabled\":false,\"mode\":\"log_only\"}\n",
+		crsDisabledPath:  "REQUEST-920-PROTOCOL-ENFORCEMENT.conf\n",
+		cachePath:        "ALLOW prefix=/seed methods=GET ttl=60\n",
+		rulePath:         "SecRuleEngine On\n",
+	}
+	for path, raw := range fileSeeds {
+		if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+			t.Fatalf("write seed file %s: %v", path, err)
+		}
+	}
+
+	config.BypassFile = bypassPath
+	config.CountryBlockFile = countryBlockPath
+	config.RateLimitFile = rateLimitPath
+	config.BotDefenseFile = botDefensePath
+	config.SemanticFile = semanticPath
+	config.CRSDisabledFile = crsDisabledPath
+	config.RulesFile = rulePath
+	cacheConfPath = cachePath
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStore(false, "", 0)
+	})
+
+	if err := InitDBConfigMirrors(); err != nil {
+		t.Fatalf("seed mirrors: %v", err)
+	}
+
+	dbRaw := map[string]string{
+		dbConfigKeyBypassRaw:         "/from-db\n",
+		dbConfigKeyCountryBlockRaw:   "US\nUNKNOWN\n",
+		dbConfigKeyRateLimitRaw:      "{\"enabled\":true}\n",
+		dbConfigKeyBotDefenseRaw:     "{\"enabled\":true,\"mode\":\"suspicious\"}\n",
+		dbConfigKeySemanticRaw:       "{\"enabled\":true,\"mode\":\"blocking\"}\n",
+		dbConfigKeyCRSDisabledRaw:    "REQUEST-933-APPLICATION-ATTACK-PHP.conf\n",
+		dbConfigKeyCacheRaw:          "DENY prefix=/admin methods=GET ttl=30\n",
+		dbConfigKeyRuleRaw(rulePath): `SecRule REQUEST_URI "@beginsWith /admin" "id:100001,phase:1,deny,status:403,msg:'block admin'"` + "\n",
+	}
+	for key, raw := range dbRaw {
+		if err := putConfigBlobIfEnabled(key, raw); err != nil {
+			t.Fatalf("put blob %s: %v", key, err)
+		}
+	}
+
+	if err := InitLogsStatsStore(false, "", 0); err != nil {
+		t.Fatalf("close sqlite store: %v", err)
+	}
+
+	fileDrift := map[string]string{
+		bypassPath:       "/from-file\n",
+		countryBlockPath: "CA\n",
+		rateLimitPath:    "{\"enabled\":false,\"rules\":[]}\n",
+		botDefensePath:   "{\"enabled\":false,\"mode\":\"log_only\"}\n",
+		semanticPath:     "{\"enabled\":false,\"mode\":\"log_only\"}\n",
+		crsDisabledPath:  "REQUEST-942-APPLICATION-ATTACK-SQLI.conf\n",
+		cachePath:        "ALLOW prefix=/drift methods=GET ttl=10\n",
+		rulePath:         "SecRuleEngine DetectionOnly\n",
+	}
+	for path, raw := range fileDrift {
+		if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+			t.Fatalf("write drift file %s: %v", path, err)
+		}
+	}
+
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("reopen sqlite store: %v", err)
+	}
+	if err := InitDBConfigMirrors(); err != nil {
+		t.Fatalf("restore from db blobs: %v", err)
+	}
+
+	wantByPath := map[string]string{
+		bypassPath:       dbRaw[dbConfigKeyBypassRaw],
+		countryBlockPath: dbRaw[dbConfigKeyCountryBlockRaw],
+		rateLimitPath:    dbRaw[dbConfigKeyRateLimitRaw],
+		botDefensePath:   dbRaw[dbConfigKeyBotDefenseRaw],
+		semanticPath:     dbRaw[dbConfigKeySemanticRaw],
+		crsDisabledPath:  dbRaw[dbConfigKeyCRSDisabledRaw],
+		cachePath:        dbRaw[dbConfigKeyCacheRaw],
+		rulePath:         dbRaw[dbConfigKeyRuleRaw(rulePath)],
+	}
+	for path, want := range wantByPath {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read restored file %s: %v", path, err)
+		}
+		if string(got) != want {
+			t.Fatalf("restored raw mismatch path=%s got=%q want=%q", path, string(got), want)
+		}
+	}
+}
+
 func saveDBMirrorConfig() func() {
 	oldBypass := config.BypassFile
 	oldCountryBlock := config.CountryBlockFile
