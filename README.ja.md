@@ -74,6 +74,9 @@ Coraza + CRS WAFプロジェクト
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | `simulate=false` の適用時に承認トークンを必須化するか。 |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | 承認トークンの有効期限（秒）。 |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | propose/apply 操作の監査ログ出力先。 |
+| `WAF_DB_ENABLED` | `false` | SQLite ベースのログストアを有効化。`true` のとき `waf` ソースの `/logs/stats` `/logs/read` `/logs/download` と FP チューナーの最新イベント取得が増分DB経路を利用。 |
+| `WAF_DB_PATH` | `logs/coraza/mamotama.db` | `WAF_DB_ENABLED=true` 時に利用する SQLite ファイルパス。 |
+| `WAF_DB_RETENTION_DAYS` | `30` | SQLite `waf_events` の保持日数。これより古い行は同期時に削除。`0` で削除無効。 |
 | `WAF_STRICT_OVERRIDE` | `false` | 特別ルール読み込み失敗時の挙動。`true`で即終了、`false`で警告のみ継続。 |
 | `WAF_API_BASEPATH` | `/mamotama-api` | 管理APIのベースパス（Go側のルーティング基準）。 |
 | `WAF_API_KEY_PRIMARY` | `…` | 管理API用の主キー（`X-API-Key`）。 |
@@ -562,13 +565,14 @@ GitHub Actions の `ci` ワークフローで以下を検証します。
 
 - `go test ./...`（`coraza/src`）
 - `docker compose config` の妥当性確認
-- `./scripts/run_gotestwaf.sh`（`waf-test` ジョブ、`MIN_BLOCKED_RATIO=70`）
+- `./scripts/run_gotestwaf.sh`（`waf-test` マトリクス、`MIN_BLOCKED_RATIO=70`、`WAF_DB_ENABLED=false/true`）
 
 運用では、以下をブランチ保護の Required Checks に設定してください。
 
 - `ci / go-test`
 - `ci / compose-validate`
-- `ci / waf-test`
+- `ci / waf-test (file)`
+- `ci / waf-test (sqlite)`
 
 ---
 
@@ -578,6 +582,12 @@ GitHub Actions の `ci` ワークフローで以下を検証します。
 
 - `docs/operations/waf-tuning.md`
 - `docs/operations/fp-tuner-api.md`
+
+## DB運用
+
+SQLite 運用手順は以下を参照してください。
+
+- `docs/operations/db-ops.md`
 
 ---
 
