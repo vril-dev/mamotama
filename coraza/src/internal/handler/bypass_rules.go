@@ -27,7 +27,11 @@ func bindBypassPutBody(c *gin.Context) (bypassPutBody, bool) {
 
 func GetBypassRules(c *gin.Context) {
 	path := config.BypassFile
-	raw, _ := os.ReadFile(path)
+	raw, err := readConfigBlobOrFile(dbConfigKeyBypassRaw, path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"etag": bypassconf.ComputeETag(raw),
 		"raw":  string(raw),
@@ -51,7 +55,11 @@ func ValidateBypassRules(c *gin.Context) {
 func PutBypassRules(c *gin.Context) {
 	path := config.BypassFile
 	ifMatch := c.GetHeader("If-Match")
-	curRaw, _ := os.ReadFile(path)
+	curRaw, err := readConfigBlobOrFile(dbConfigKeyBypassRaw, path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	curETag := bypassconf.ComputeETag(curRaw)
 	if ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
@@ -68,11 +76,23 @@ func PutBypassRules(c *gin.Context) {
 		return
 	}
 
-	if err := bypassconf.AtomicWriteWithBackup(path, []byte(in.Raw)); err != nil {
+	if err := putConfigBlobIfEnabled(dbConfigKeyBypassRaw, in.Raw); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	_ = bypassconf.Reload()
+
+	if err := bypassconf.AtomicWriteWithBackup(path, []byte(in.Raw)); err != nil {
+		rollbackConfigBlobIfEnabled(dbConfigKeyBypassRaw, string(curRaw))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := bypassconf.Reload(); err != nil {
+		_ = bypassconf.AtomicWriteWithBackup(path, curRaw)
+		_ = bypassconf.Reload()
+		rollbackConfigBlobIfEnabled(dbConfigKeyBypassRaw, string(curRaw))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	newETag := bypassconf.ComputeETag([]byte(in.Raw))
 	c.JSON(http.StatusOK, gin.H{"ok": true, "etag": newETag})
