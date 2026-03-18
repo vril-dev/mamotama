@@ -231,9 +231,19 @@ func LogsStats(c *gin.Context) {
 	}
 	path = resolveLogPath("waf", path)
 
-	scan := clampInt(mustAtoiDefault(c.Query("scan"), defaultStatsScanLines), 1, maxStatsScanLines)
 	rangeHours := clampInt(mustAtoiDefault(c.Query("hours"), defaultStatsRangeHours), 1, maxStatsRangeHours)
 	now := time.Now().UTC()
+	if store := getLogsStatsStore(); store != nil {
+		resp, err := store.BuildLogsStats(path, rangeHours, now)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
+	scan := clampInt(mustAtoiDefault(c.Query("scan"), defaultStatsScanLines), 1, maxStatsScanLines)
 	seriesStart, seriesEnd := statsHourlyRange(now, rangeHours)
 
 	lines, _, _, _, err := readByLine(path, scan, nil, "")

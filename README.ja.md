@@ -74,6 +74,8 @@ Coraza + CRS WAFプロジェクト
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | `simulate=false` の適用時に承認トークンを必須化するか。 |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | 承認トークンの有効期限（秒）。 |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | propose/apply 操作の監査ログ出力先。 |
+| `WAF_DB_ENABLED` | `false` | SQLite ベースのログ統計ストアを有効化。`true` のとき `/logs/stats` は全件ファイル走査ではなく増分集計を利用。 |
+| `WAF_DB_PATH` | `logs/coraza/mamotama.db` | `WAF_DB_ENABLED=true` 時に利用する SQLite ファイルパス。 |
 | `WAF_STRICT_OVERRIDE` | `false` | 特別ルール読み込み失敗時の挙動。`true`で即終了、`false`で警告のみ継続。 |
 | `WAF_API_BASEPATH` | `/mamotama-api` | 管理APIのベースパス（Go側のルーティング基準）。 |
 | `WAF_API_KEY_PRIMARY` | `…` | 管理API用の主キー（`X-API-Key`）。 |

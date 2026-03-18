@@ -73,6 +73,8 @@ You can control behavior via `.env`.
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | Require approval token for non-simulated apply (`/fp-tuner/apply` with `simulate=false`). |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | Approval token TTL in seconds. |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | Audit log destination for propose/apply actions. |
+| `WAF_DB_ENABLED` | `false` | Enable SQLite-backed log stats store. When `true`, `/logs/stats` uses incremental DB aggregation instead of full file scan. |
+| `WAF_DB_PATH` | `logs/coraza/mamotama.db` | SQLite file path used when `WAF_DB_ENABLED=true`. |
 | `WAF_STRICT_OVERRIDE` | `false` | Behavior when a special-rule file fails to load. `true`: fail fast. `false`: warn and continue. |
 | `WAF_API_BASEPATH` | `/mamotama-api` | Base path for admin API routing on Go server. |
 | `WAF_API_KEY_PRIMARY` | `...` | Primary admin API key (`X-API-Key`). |

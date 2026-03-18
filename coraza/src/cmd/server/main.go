@@ -16,6 +16,11 @@ import (
 
 func main() {
 	config.LoadEnv()
+	if err := handler.InitLogsStatsStore(config.DBEnabled, config.DBPath); err != nil {
+		log.Printf("[DB][INIT][WARN] failed to initialize sqlite stats store (fallback=file): %v", err)
+	} else if config.DBEnabled {
+		log.Printf("[DB][INIT] sqlite stats store enabled (path=%s)", config.DBPath)
+	}
 	waf.InitWAF()
 	if err := handler.InitCountryBlock(config.CountryBlockFile); err != nil {
 		log.Printf("[COUNTRY_BLOCK][INIT][ERR] %v (path=%s)", err, config.CountryBlockFile)
