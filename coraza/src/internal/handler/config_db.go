@@ -17,6 +17,9 @@ const (
 	dbConfigKeyRateLimitRaw    = "rate_limit.raw"
 	dbConfigKeyBotDefenseRaw   = "bot_defense.raw"
 	dbConfigKeySemanticRaw     = "semantic.raw"
+	dbConfigKeyCRSDisabledRaw  = "crs_disabled.raw"
+	dbConfigKeyCacheRaw        = "cache.raw"
+	dbConfigKeyRuleRawPrefix   = "rule.raw:"
 )
 
 type dbConfigMirrorSpec struct {
@@ -63,6 +66,22 @@ func InitDBConfigMirrors() error {
 			ensure:  ensureSemanticFile,
 			context: "semantic",
 		},
+		{
+			key:  dbConfigKeyCRSDisabledRaw,
+			path: strings.TrimSpace(config.CRSDisabledFile),
+			ensure: func(path string) error {
+				return ensureTextFile(path, []byte("# disabled CRS rule filenames\n"))
+			},
+			context: "crs disabled",
+		},
+		{
+			key:  dbConfigKeyCacheRaw,
+			path: strings.TrimSpace(cacheConfPath),
+			ensure: func(path string) error {
+				return ensureTextFile(path, []byte("# cache.conf - Mamotama Cache Rules\n"))
+			},
+			context: "cache",
+		},
 	}
 
 	for _, spec := range specs {
@@ -76,8 +95,38 @@ func InitDBConfigMirrors() error {
 			return fmt.Errorf("sync %s config blob: %w", spec.context, err)
 		}
 	}
+	for _, path := range baseRuleFilesFromConfig() {
+		if err := ensureTextFile(path, []byte("# custom WAF rules\n")); err != nil {
+			return fmt.Errorf("ensure rule file: %w", err)
+		}
+		if err := syncConfigBlobWithFile(store, dbConfigKeyRuleRaw(path), path); err != nil {
+			return fmt.Errorf("sync rule config blob: %w", err)
+		}
+	}
 
 	return nil
+}
+
+func dbConfigKeyRuleRaw(path string) string {
+	return dbConfigKeyRuleRawPrefix + filepath.Clean(strings.TrimSpace(path))
+}
+
+func baseRuleFilesFromConfig() []string {
+	parts := strings.Split(config.RulesFile, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, p := range parts {
+		path := filepath.Clean(strings.TrimSpace(p))
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	return out
 }
 
 func readConfigBlobOrFile(key, path string) ([]byte, error) {

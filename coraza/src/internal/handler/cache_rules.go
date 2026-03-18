@@ -2,14 +2,13 @@ package handler
 
 import (
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/cacheconf"
 )
 
-const cacheConfPath = "conf/cache.conf"
+var cacheConfPath = "conf/cache.conf"
 
 type crPutBody struct {
 	RawMode bool                `json:"rawMode"`
@@ -18,7 +17,11 @@ type crPutBody struct {
 }
 
 func GetCacheRules(c *gin.Context) {
-	raw, _ := os.ReadFile(cacheConfPath)
+	raw, err := readConfigBlobOrFile(dbConfigKeyCacheRaw, cacheConfPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	rs := cacheconf.Get()
 	dto := cacheconf.RulesDTO{
 		ETag:  cacheconf.ComputeETag(raw),
@@ -61,7 +64,11 @@ func ValidateCacheRules(c *gin.Context) {
 
 func PutCacheRules(c *gin.Context) {
 	ifMatch := c.GetHeader("If-Match")
-	curRaw, _ := os.ReadFile(cacheConfPath)
+	curRaw, err := readConfigBlobOrFile(dbConfigKeyCacheRaw, cacheConfPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	curETag := cacheconf.ComputeETag(curRaw)
 	if ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
@@ -104,7 +111,13 @@ func PutCacheRules(c *gin.Context) {
 		outBytes = []byte(strings.Join(out, "\n") + "\n")
 	}
 
+	if err := putConfigBlobIfEnabled(dbConfigKeyCacheRaw, string(outBytes)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	if err := cacheconf.AtomicWriteWithBackup(cacheConfPath, outBytes); err != nil {
+		rollbackConfigBlobIfEnabled(dbConfigKeyCacheRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

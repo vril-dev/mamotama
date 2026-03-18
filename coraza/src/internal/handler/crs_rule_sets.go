@@ -26,8 +26,13 @@ type crsRuleSetPutBody struct {
 }
 
 func GetCRSRuleSets(c *gin.Context) {
+	raw, err := readConfigBlobOrFile(dbConfigKeyCRSDisabledRaw, config.CRSDisabledFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	if !config.CRSEnable {
-		raw, _ := os.ReadFile(config.CRSDisabledFile)
 		c.JSON(http.StatusOK, gin.H{
 			"crs_enabled":    false,
 			"disabled_file":  config.CRSDisabledFile,
@@ -47,7 +52,6 @@ func GetCRSRuleSets(c *gin.Context) {
 		return
 	}
 
-	raw, _ := os.ReadFile(config.CRSDisabledFile)
 	disabledSet, err := crsselection.LoadDisabledFile(config.CRSDisabledFile)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -114,7 +118,7 @@ func PutCRSRuleSets(c *gin.Context) {
 		return
 	}
 
-	curRaw, hadFile, err := readFileMaybe(config.CRSDisabledFile)
+	curRaw, err := readConfigBlobOrFile(dbConfigKeyCRSDisabledRaw, config.CRSDisabledFile)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -147,14 +151,20 @@ func PutCRSRuleSets(c *gin.Context) {
 	}
 
 	nextRaw := crsselection.SerializeDisabled(disabledNames)
+	if err := putConfigBlobIfEnabled(dbConfigKeyCRSDisabledRaw, string(nextRaw)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	if err := bypassconf.AtomicWriteWithBackup(config.CRSDisabledFile, nextRaw); err != nil {
+		rollbackConfigBlobIfEnabled(dbConfigKeyCRSDisabledRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	if err := waf.ReloadBaseWAF(); err != nil {
-		rollbackErr := rollbackCRSDisabledFile(config.CRSDisabledFile, hadFile, curRaw)
+		rollbackErr := bypassconf.AtomicWriteWithBackup(config.CRSDisabledFile, curRaw)
 		_ = waf.ReloadBaseWAF()
+		rollbackConfigBlobIfEnabled(dbConfigKeyCRSDisabledRaw, string(curRaw))
 		msg := fmt.Sprintf("reload failed and rollback applied: %v", err)
 		if rollbackErr != nil {
 			msg = fmt.Sprintf("%s (rollback error: %v)", msg, rollbackErr)

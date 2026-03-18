@@ -98,6 +98,9 @@ func TestInitDBConfigMirrors_SyncsDBBlobToConfigFiles(t *testing.T) {
 	rateLimitPath := filepath.Join(tmp, "rate-limit.conf")
 	botDefensePath := filepath.Join(tmp, "bot-defense.conf")
 	semanticPath := filepath.Join(tmp, "semantic.conf")
+	crsDisabledPath := filepath.Join(tmp, "crs-disabled.conf")
+	cachePath := filepath.Join(tmp, "cache.conf")
+	rulePath := filepath.Join(tmp, "rules", "custom.conf")
 	if err := os.WriteFile(bypassPath, []byte("/seed\n"), 0o644); err != nil {
 		t.Fatalf("write bypass file: %v", err)
 	}
@@ -113,12 +116,27 @@ func TestInitDBConfigMirrors_SyncsDBBlobToConfigFiles(t *testing.T) {
 	if err := os.WriteFile(semanticPath, []byte("{\"enabled\":false,\"mode\":\"log_only\"}\n"), 0o644); err != nil {
 		t.Fatalf("write semantic file: %v", err)
 	}
+	if err := os.WriteFile(crsDisabledPath, []byte("REQUEST-920-PROTOCOL-ENFORCEMENT.conf\n"), 0o644); err != nil {
+		t.Fatalf("write crs disabled file: %v", err)
+	}
+	if err := os.WriteFile(cachePath, []byte("ALLOW prefix=/static methods=GET ttl=120\n"), 0o644); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(rulePath), 0o755); err != nil {
+		t.Fatalf("mkdir rule dir: %v", err)
+	}
+	if err := os.WriteFile(rulePath, []byte("SecRuleEngine On\n"), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
 
 	config.BypassFile = bypassPath
 	config.CountryBlockFile = countryBlockPath
 	config.RateLimitFile = rateLimitPath
 	config.BotDefenseFile = botDefensePath
 	config.SemanticFile = semanticPath
+	config.CRSDisabledFile = crsDisabledPath
+	config.RulesFile = rulePath
+	cacheConfPath = cachePath
 
 	dbPath := filepath.Join(tmp, "mamotama.db")
 	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
@@ -146,6 +164,15 @@ func TestInitDBConfigMirrors_SyncsDBBlobToConfigFiles(t *testing.T) {
 	}
 	if err := os.WriteFile(semanticPath, []byte("{\"enabled\":true}\n"), 0o644); err != nil {
 		t.Fatalf("rewrite semantic file: %v", err)
+	}
+	if err := os.WriteFile(crsDisabledPath, []byte("REQUEST-933-APPLICATION-ATTACK-PHP.conf\n"), 0o644); err != nil {
+		t.Fatalf("rewrite crs disabled file: %v", err)
+	}
+	if err := os.WriteFile(cachePath, []byte("DENY prefix=/admin methods=GET ttl=60\n"), 0o644); err != nil {
+		t.Fatalf("rewrite cache file: %v", err)
+	}
+	if err := os.WriteFile(rulePath, []byte("SecRuleEngine DetectionOnly\n"), 0o644); err != nil {
+		t.Fatalf("rewrite rule file: %v", err)
 	}
 
 	if err := InitDBConfigMirrors(); err != nil {
@@ -191,6 +218,30 @@ func TestInitDBConfigMirrors_SyncsDBBlobToConfigFiles(t *testing.T) {
 	if got := string(semanticRaw); got != "{\"enabled\":false,\"mode\":\"log_only\"}\n" {
 		t.Fatalf("semantic raw=%q want=%q", got, "{\"enabled\":false,\"mode\":\"log_only\"}\n")
 	}
+
+	crsDisabledRaw, err := os.ReadFile(crsDisabledPath)
+	if err != nil {
+		t.Fatalf("read crs disabled file: %v", err)
+	}
+	if got := string(crsDisabledRaw); got != "REQUEST-920-PROTOCOL-ENFORCEMENT.conf\n" {
+		t.Fatalf("crs disabled raw=%q want=%q", got, "REQUEST-920-PROTOCOL-ENFORCEMENT.conf\n")
+	}
+
+	cacheRaw, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("read cache file: %v", err)
+	}
+	if got := string(cacheRaw); got != "ALLOW prefix=/static methods=GET ttl=120\n" {
+		t.Fatalf("cache raw=%q want=%q", got, "ALLOW prefix=/static methods=GET ttl=120\n")
+	}
+
+	ruleRaw, err := os.ReadFile(rulePath)
+	if err != nil {
+		t.Fatalf("read rule file: %v", err)
+	}
+	if got := string(ruleRaw); got != "SecRuleEngine On\n" {
+		t.Fatalf("rule raw=%q want=%q", got, "SecRuleEngine On\n")
+	}
 }
 
 func saveDBMirrorConfig() func() {
@@ -199,11 +250,17 @@ func saveDBMirrorConfig() func() {
 	oldRateLimit := config.RateLimitFile
 	oldBotDefense := config.BotDefenseFile
 	oldSemantic := config.SemanticFile
+	oldCRSDisabled := config.CRSDisabledFile
+	oldRulesFile := config.RulesFile
+	oldCacheConfPath := cacheConfPath
 	return func() {
 		config.BypassFile = oldBypass
 		config.CountryBlockFile = oldCountryBlock
 		config.RateLimitFile = oldRateLimit
 		config.BotDefenseFile = oldBotDefense
 		config.SemanticFile = oldSemantic
+		config.CRSDisabledFile = oldCRSDisabled
+		config.RulesFile = oldRulesFile
+		cacheConfPath = oldCacheConfPath
 	}
 }
