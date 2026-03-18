@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/bypassconf"
@@ -23,11 +24,7 @@ func bindCountryBlockPutBody(c *gin.Context) (countryBlockPutBody, bool) {
 
 func GetCountryBlockRules(c *gin.Context) {
 	path := GetCountryBlockPath()
-	raw, err := readConfigBlobOrFile(dbConfigKeyCountryBlockRaw, path)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	raw, _ := os.ReadFile(path)
 	c.JSON(http.StatusOK, gin.H{
 		"etag":    bypassconf.ComputeETag(raw),
 		"raw":     string(raw),
@@ -53,11 +50,7 @@ func ValidateCountryBlockRules(c *gin.Context) {
 func PutCountryBlockRules(c *gin.Context) {
 	path := GetCountryBlockPath()
 	ifMatch := c.GetHeader("If-Match")
-	curRaw, err := readConfigBlobOrFile(dbConfigKeyCountryBlockRaw, path)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	curRaw, _ := os.ReadFile(path)
 	curETag := bypassconf.ComputeETag(curRaw)
 	if ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
@@ -75,13 +68,7 @@ func PutCountryBlockRules(c *gin.Context) {
 		return
 	}
 
-	if err := putConfigBlobIfEnabled(dbConfigKeyCountryBlockRaw, in.Raw); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
 	if err := bypassconf.AtomicWriteWithBackup(path, []byte(in.Raw)); err != nil {
-		rollbackConfigBlobIfEnabled(dbConfigKeyCountryBlockRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -89,7 +76,6 @@ func PutCountryBlockRules(c *gin.Context) {
 	if err := ReloadCountryBlock(); err != nil {
 		_ = bypassconf.AtomicWriteWithBackup(path, curRaw)
 		_ = ReloadCountryBlock()
-		rollbackConfigBlobIfEnabled(dbConfigKeyCountryBlockRaw, string(curRaw))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

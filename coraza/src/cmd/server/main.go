@@ -21,9 +21,6 @@ func main() {
 	} else if config.DBEnabled {
 		log.Printf("[DB][INIT] sqlite stats store enabled (path=%s retention_days=%d)", config.DBPath, config.DBRetentionDays)
 	}
-	if err := handler.InitDBConfigMirrors(); err != nil {
-		log.Printf("[DB][INIT][WARN] failed to initialize sqlite config mirrors (fallback=file): %v", err)
-	}
 	waf.InitWAF()
 	if err := handler.InitCountryBlock(config.CountryBlockFile); err != nil {
 		log.Printf("[COUNTRY_BLOCK][INIT][ERR] %v (path=%s)", err, config.CountryBlockFile)

@@ -125,11 +125,6 @@ func openWAFEventStore(dbPath string, retentionDays int) (*wafEventStore, error)
 		`CREATE INDEX IF NOT EXISTS idx_waf_events_path ON waf_events(path);`,
 		`CREATE INDEX IF NOT EXISTS idx_waf_events_country ON waf_events(country);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_waf_events_line_hash ON waf_events(line_hash);`,
-		`CREATE TABLE IF NOT EXISTS waf_config_blobs (
-			config_key TEXT PRIMARY KEY,
-			raw TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);`,
 		`CREATE TABLE IF NOT EXISTS ingest_state (
 			source TEXT PRIMARY KEY,
 			offset INTEGER NOT NULL,
@@ -334,55 +329,6 @@ func (s *wafEventStore) StatusSnapshot(logPath string) (wafEventStoreStatus, err
 		LastIngestModTime:    modTime,
 		LastSyncScannedLines: syncResult.ScannedLines,
 	}, nil
-}
-
-func (s *wafEventStore) GetConfigBlob(key string) (string, bool, error) {
-	cfgKey := strings.TrimSpace(key)
-	if cfgKey == "" {
-		return "", false, fmt.Errorf("config key is empty")
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var raw string
-	err := s.db.QueryRow(
-		`SELECT raw FROM waf_config_blobs WHERE config_key = ?`,
-		cfgKey,
-	).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return raw, true, nil
-}
-
-func (s *wafEventStore) PutConfigBlob(key, raw string, now time.Time) error {
-	cfgKey := strings.TrimSpace(key)
-	if cfgKey == "" {
-		return fmt.Errorf("config key is empty")
-	}
-	ts := now.UTC()
-	if ts.IsZero() {
-		ts = time.Now().UTC()
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, err := s.db.Exec(
-		`INSERT INTO waf_config_blobs (config_key, raw, updated_at)
-		 VALUES (?, ?, ?)
-		 ON CONFLICT(config_key) DO UPDATE SET
-			raw = excluded.raw,
-			updated_at = excluded.updated_at`,
-		cfgKey,
-		raw,
-		ts.Format(time.RFC3339Nano),
-	)
-	return err
 }
 
 func (s *wafEventStore) ReadWAFLogs(logPath string, tail int, cursor *int64, dir string) ([]logLine, *int64, bool, bool, error) {
