@@ -95,6 +95,9 @@ export default function Status() {
 
     const running = useMemo(() => (data?.status === "running"), [data]);
     const wafBlock = stats?.waf_block;
+    const dbSizeBytes = toNumber(data?.db_size_bytes);
+    const dbRows = toNumber(data?.db_total_rows);
+    const dbWAFBlockRows = toNumber(data?.db_waf_block_rows);
 
     if (error) {
         return (
@@ -183,6 +186,12 @@ export default function Status() {
                 <Metric label="Rate Limit Enabled" value={String(data.rate_limit_enabled ?? "-")} />
                 <Metric label="Bot Defense Enabled" value={String(data.bot_defense_enabled ?? "-")} />
                 <Metric label="Semantic Mode" value={String(data.semantic_mode ?? "-")} />
+                <Metric label="DB Enabled" value={String(data.db_enabled ?? "-")} />
+                <Metric label="DB Retention Days" value={String(data.db_retention_days ?? "-")} />
+                <Metric label="DB Rows (Total)" value={dbRows != null ? formatCount(dbRows) : "-"} />
+                <Metric label="DB Rows (WAF Block)" value={dbWAFBlockRows != null ? formatCount(dbWAFBlockRows) : "-"} />
+                <Metric label="DB Size" value={dbSizeBytes != null ? formatBytes(dbSizeBytes) : "-"} />
+                <Metric label="DB Last Sync Scan Lines" value={String(data.db_last_sync_scanned_lines ?? "-")} />
             </div>
 
             <pre className="text-sm rounded-xl p-4 shadow-sm overflow-x-auto">
@@ -276,6 +285,34 @@ function formatCount(value: number | undefined) {
         return "-";
     }
     return value.toLocaleString();
+}
+
+function formatBytes(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes < 0) {
+        return "-";
+    }
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = bytes;
+    let idx = 0;
+    while (value >= 1024 && idx < units.length - 1) {
+        value /= 1024;
+        idx++;
+    }
+    const rounded = idx === 0 ? Math.round(value) : Math.round(value * 10) / 10;
+    return `${rounded.toLocaleString()} ${units[idx]}`;
+}
+
+function toNumber(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+        const n = Number(value);
+        if (Number.isFinite(n)) {
+            return n;
+        }
+    }
+    return null;
 }
 
 function formatTime(value: string | undefined) {

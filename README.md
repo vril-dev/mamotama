@@ -73,6 +73,9 @@ You can control behavior via `.env`.
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | Require approval token for non-simulated apply (`/fp-tuner/apply` with `simulate=false`). |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | Approval token TTL in seconds. |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | Audit log destination for propose/apply actions. |
+| `WAF_DB_ENABLED` | `false` | Enable SQLite-backed log store. When `true`, `waf` source on `/logs/stats`, `/logs/read`, `/logs/download`, and FP tuner latest-event lookup use incremental DB-backed data. |
+| `WAF_DB_PATH` | `logs/coraza/mamotama.db` | SQLite file path used when `WAF_DB_ENABLED=true`. |
+| `WAF_DB_RETENTION_DAYS` | `30` | Retention window for `waf_events` in SQLite. Entries older than this are pruned on sync. `0` disables pruning. |
 | `WAF_STRICT_OVERRIDE` | `false` | Behavior when a special-rule file fails to load. `true`: fail fast. `false`: warn and continue. |
 | `WAF_API_BASEPATH` | `/mamotama-api` | Base path for admin API routing on Go server. |
 | `WAF_API_KEY_PRIMARY` | `...` | Primary admin API key (`X-API-Key`). |
@@ -560,13 +563,14 @@ GitHub Actions workflow `ci` validates:
 
 - `go test ./...` (`coraza/src`)
 - `docker compose config` sanity check
-- `./scripts/run_gotestwaf.sh` (`waf-test` job, `MIN_BLOCKED_RATIO=70`)
+- `./scripts/run_gotestwaf.sh` (`waf-test` matrix, `MIN_BLOCKED_RATIO=70`, `WAF_DB_ENABLED=false/true`)
 
 In production workflows, set these as required branch protection checks:
 
 - `ci / go-test`
 - `ci / compose-validate`
-- `ci / waf-test`
+- `ci / waf-test (file)`
+- `ci / waf-test (sqlite)`
 
 ---
 
@@ -576,6 +580,12 @@ See:
 
 - `docs/operations/waf-tuning.md`
 - `docs/operations/fp-tuner-api.md`
+
+## DB Operations
+
+SQLite operation notes:
+
+- `docs/operations/db-ops.md`
 
 ---
 

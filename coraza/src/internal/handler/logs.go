@@ -112,7 +112,21 @@ func LogsRead(c *gin.Context) {
 	}
 	countryFilter := normalizeCountryFilter(c.Query("country"))
 
-	lines, nextCur, hasPrev, hasNext, err := readByLine(path, tail, cursor, dir)
+	var (
+		lines            []logLine
+		nextCur          *int64
+		hasPrev, hasNext bool
+		err              error
+	)
+	if src == "waf" {
+		if store := getLogsStatsStore(); store != nil {
+			lines, nextCur, hasPrev, hasNext, err = store.ReadWAFLogs(path, tail, cursor, dir)
+		} else {
+			lines, nextCur, hasPrev, hasNext, err = readByLine(path, tail, cursor, dir)
+		}
+	} else {
+		lines, nextCur, hasPrev, hasNext, err = readByLine(path, tail, cursor, dir)
+	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			c.JSON(http.StatusOK, readResp{Lines: nil, NextCursor: nil, HasMore: false})
@@ -188,16 +202,23 @@ func LogsDownload(c *gin.Context) {
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	c.Header("Content-Encoding", "gzip")
 
+	gw := gzip.NewWriter(c.Writer)
+	defer gw.Close()
+
+	if src == "waf" {
+		if store := getLogsStatsStore(); store != nil {
+			if err := store.DownloadWAFLogs(path, gw, from, to, countryFilter); err != nil {
+				c.Status(http.StatusInternalServerError)
+			}
+			return
+		}
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
-		gw := gzip.NewWriter(c.Writer)
-		_ = gw.Close()
 		return
 	}
 	defer f.Close()
-
-	gw := gzip.NewWriter(c.Writer)
-	defer gw.Close()
 
 	br := bufio.NewReaderSize(f, 64*1024)
 	for {
@@ -231,9 +252,19 @@ func LogsStats(c *gin.Context) {
 	}
 	path = resolveLogPath("waf", path)
 
-	scan := clampInt(mustAtoiDefault(c.Query("scan"), defaultStatsScanLines), 1, maxStatsScanLines)
 	rangeHours := clampInt(mustAtoiDefault(c.Query("hours"), defaultStatsRangeHours), 1, maxStatsRangeHours)
 	now := time.Now().UTC()
+	if store := getLogsStatsStore(); store != nil {
+		resp, err := store.BuildLogsStats(path, rangeHours, now)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
+	scan := clampInt(mustAtoiDefault(c.Query("scan"), defaultStatsScanLines), 1, maxStatsScanLines)
 	seriesStart, seriesEnd := statsHourlyRange(now, rangeHours)
 
 	lines, _, _, _, err := readByLine(path, scan, nil, "")

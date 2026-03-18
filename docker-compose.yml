@@ -30,6 +30,9 @@ services:
       - WAF_FP_TUNER_REQUIRE_APPROVAL=${WAF_FP_TUNER_REQUIRE_APPROVAL:-true}
       - WAF_FP_TUNER_APPROVAL_TTL_SEC=${WAF_FP_TUNER_APPROVAL_TTL_SEC:-600}
       - WAF_FP_TUNER_AUDIT_FILE=${WAF_FP_TUNER_AUDIT_FILE:-logs/coraza/fp-tuner-audit.ndjson}
+      - WAF_DB_ENABLED=${WAF_DB_ENABLED:-false}
+      - WAF_DB_PATH=${WAF_DB_PATH:-logs/coraza/mamotama.db}
+      - WAF_DB_RETENTION_DAYS=${WAF_DB_RETENTION_DAYS:-30}
       - WAF_ALLOW_INSECURE_DEFAULTS=${WAF_ALLOW_INSECURE_DEFAULTS}
     volumes:
       - ./data/rules:/app/rules
