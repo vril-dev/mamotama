@@ -1,15 +1,21 @@
 package handler
 
 import (
+	"bytes"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/cacheconf"
 )
 
-const cacheConfPath = "conf/cache.conf"
+const (
+	cacheConfPath      = "conf/cache.conf"
+	cacheConfigBlobKey = "cache_rules"
+)
 
 type crPutBody struct {
 	RawMode bool                `json:"rawMode"`
@@ -19,6 +25,37 @@ type crPutBody struct {
 
 func GetCacheRules(c *gin.Context) {
 	raw, _ := os.ReadFile(cacheConfPath)
+	if store := getLogsStatsStore(); store != nil {
+		dbRaw, dbETag, found, err := store.GetConfigBlob(cacheConfigBlobKey)
+		if err != nil {
+			log.Printf("[CACHE][DB][WARN] get config blob failed: %v", err)
+		} else if found {
+			rsDB, parseErr := cacheconf.LoadFromBytes(dbRaw)
+			if parseErr != nil {
+				log.Printf("[CACHE][DB][WARN] cached blob parse failed (fallback=file): %v", parseErr)
+			} else {
+				if !bytes.Equal(raw, dbRaw) {
+					if err := cacheconf.AtomicWriteWithBackup(cacheConfPath, dbRaw); err != nil {
+						log.Printf("[CACHE][DB][WARN] sync file from db failed: %v", err)
+					}
+				}
+				if strings.TrimSpace(dbETag) == "" {
+					dbETag = cacheconf.ComputeETag(dbRaw)
+				}
+				c.JSON(http.StatusOK, cacheconf.RulesDTO{
+					ETag:  dbETag,
+					Raw:   string(dbRaw),
+					Rules: cacheconf.ToDTO(rsDB),
+				})
+				return
+			}
+		} else if len(raw) > 0 {
+			if err := store.UpsertConfigBlob(cacheConfigBlobKey, raw, cacheconf.ComputeETag(raw), time.Now().UTC()); err != nil {
+				log.Printf("[CACHE][DB][WARN] seed config blob failed: %v", err)
+			}
+		}
+	}
+
 	rs := cacheconf.Get()
 	dto := cacheconf.RulesDTO{
 		ETag:  cacheconf.ComputeETag(raw),
@@ -110,5 +147,60 @@ func PutCacheRules(c *gin.Context) {
 	}
 
 	newETag := cacheconf.ComputeETag(outBytes)
+	if store := getLogsStatsStore(); store != nil {
+		if err := store.UpsertConfigBlob(cacheConfigBlobKey, outBytes, newETag, time.Now().UTC()); err != nil {
+			rollbackErr := cacheconf.AtomicWriteWithBackup(cacheConfPath, curRaw)
+			if rollbackErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":          "cache db sync failed and rollback failed",
+					"db_error":       err.Error(),
+					"rollback_error": rollbackErr.Error(),
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":    "cache db sync failed and rollback applied",
+				"db_error": err.Error(),
+			})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"ok": true, "etag": newETag})
+}
+
+func SyncCacheRulesStorage() error {
+	store := getLogsStatsStore()
+	if store == nil {
+		return nil
+	}
+
+	raw, _ := os.ReadFile(cacheConfPath)
+	dbRaw, dbETag, found, err := store.GetConfigBlob(cacheConfigBlobKey)
+	if err != nil {
+		return err
+	}
+
+	if found {
+		if _, parseErr := cacheconf.LoadFromBytes(dbRaw); parseErr != nil {
+			return parseErr
+		}
+		if strings.TrimSpace(dbETag) == "" {
+			dbETag = cacheconf.ComputeETag(dbRaw)
+		}
+		if !bytes.Equal(raw, dbRaw) {
+			if err := cacheconf.AtomicWriteWithBackup(cacheConfPath, dbRaw); err != nil {
+				return err
+			}
+		}
+		if err := store.UpsertConfigBlob(cacheConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if len(raw) == 0 {
+		return nil
+	}
+	return store.UpsertConfigBlob(cacheConfigBlobKey, raw, cacheconf.ComputeETag(raw), time.Now().UTC())
 }

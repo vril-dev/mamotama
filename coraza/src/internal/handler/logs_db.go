@@ -178,6 +178,14 @@ func openWAFEventStoreSQLite(dbPath string, retentionDays int) (*wafEventStore, 
 			size INTEGER NOT NULL,
 			mod_time_ns INTEGER NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS config_blobs (
+			config_key TEXT PRIMARY KEY,
+			raw_text TEXT NOT NULL,
+			etag TEXT NOT NULL,
+			updated_at_unix INTEGER NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_config_blobs_updated_at_unix ON config_blobs(updated_at_unix);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -264,6 +272,14 @@ func openWAFEventStoreMySQL(dbDSN string, retentionDays int) (*wafEventStore, er
 			"size BIGINT NOT NULL," +
 			"mod_time_ns BIGINT NOT NULL" +
 			") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+		`CREATE TABLE IF NOT EXISTS config_blobs (
+			config_key VARCHAR(128) NOT NULL PRIMARY KEY,
+			raw_text LONGTEXT NOT NULL,
+			etag VARCHAR(128) NOT NULL,
+			updated_at_unix BIGINT NOT NULL,
+			updated_at VARCHAR(64) NOT NULL,
+			KEY idx_config_blobs_updated_at_unix (updated_at_unix)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -870,6 +886,88 @@ func (s *wafEventStore) upsertIngestStateStmt() string {
 			mod_time_ns = excluded.mod_time_ns`
 }
 
+func (s *wafEventStore) GetConfigBlob(configKey string) ([]byte, string, bool, error) {
+	if s == nil || s.db == nil {
+		return nil, "", false, nil
+	}
+
+	key := strings.TrimSpace(configKey)
+	if key == "" {
+		return nil, "", false, fmt.Errorf("config key is empty")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var (
+		raw  string
+		etag string
+	)
+	row := s.db.QueryRow(`SELECT raw_text, etag FROM config_blobs WHERE config_key = ?`, key)
+	switch err := row.Scan(&raw, &etag); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, "", false, nil
+	case err != nil:
+		return nil, "", false, err
+	default:
+		return []byte(raw), etag, true, nil
+	}
+}
+
+func (s *wafEventStore) UpsertConfigBlob(configKey string, raw []byte, etag string, now time.Time) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("db store is not initialized")
+	}
+
+	key := strings.TrimSpace(configKey)
+	if key == "" {
+		return fmt.Errorf("config key is empty")
+	}
+
+	ts := now.UTC()
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+	payload := string(raw)
+	etag = strings.TrimSpace(etag)
+	if etag == "" {
+		sum := sha256.Sum256(raw)
+		etag = hex.EncodeToString(sum[:])
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		s.upsertConfigBlobStmt(),
+		key,
+		payload,
+		etag,
+		ts.Unix(),
+		ts.Format(time.RFC3339Nano),
+	)
+	return err
+}
+
+func (s *wafEventStore) upsertConfigBlobStmt() string {
+	if s != nil && s.dbDriver == logStatsDBDriverMySQL {
+		return `INSERT INTO config_blobs (config_key, raw_text, etag, updated_at_unix, updated_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON DUPLICATE KEY UPDATE
+			raw_text = VALUES(raw_text),
+			etag = VALUES(etag),
+			updated_at_unix = VALUES(updated_at_unix),
+			updated_at = VALUES(updated_at)`
+	}
+	return `INSERT INTO config_blobs (config_key, raw_text, etag, updated_at_unix, updated_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(config_key) DO UPDATE SET
+			raw_text = excluded.raw_text,
+			etag = excluded.etag,
+			updated_at_unix = excluded.updated_at_unix,
+			updated_at = excluded.updated_at`
+}
+
 func (s *wafEventStore) estimateDBSizeBytes() (int64, error) {
 	if s == nil {
 		return 0, nil
@@ -889,7 +987,7 @@ func (s *wafEventStore) estimateDBSizeBytes() (int64, error) {
 			SELECT COALESCE(SUM(data_length + index_length), 0)
 			  FROM information_schema.tables
 			 WHERE table_schema = DATABASE()
-			   AND table_name IN ('waf_events', 'ingest_state')`)
+			   AND table_name IN ('waf_events', 'ingest_state', 'config_blobs')`)
 		if err := row.Scan(&n); err != nil {
 			return 0, err
 		}

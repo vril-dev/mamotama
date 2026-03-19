@@ -563,6 +563,9 @@ func TestWAFEventStoreSQLDialectStatements(t *testing.T) {
 	if !strings.Contains(sqliteStore.upsertIngestStateStmt(), "ON CONFLICT") {
 		t.Fatalf("sqlite upsert stmt mismatch: %s", sqliteStore.upsertIngestStateStmt())
 	}
+	if !strings.Contains(sqliteStore.upsertConfigBlobStmt(), "ON CONFLICT") {
+		t.Fatalf("sqlite config blob upsert stmt mismatch: %s", sqliteStore.upsertConfigBlobStmt())
+	}
 
 	mysqlStore := &wafEventStore{dbDriver: logStatsDBDriverMySQL}
 	if !strings.Contains(mysqlStore.insertWAFEventStmt(), "INSERT IGNORE") {
@@ -570,6 +573,86 @@ func TestWAFEventStoreSQLDialectStatements(t *testing.T) {
 	}
 	if !strings.Contains(mysqlStore.upsertIngestStateStmt(), "ON DUPLICATE KEY UPDATE") {
 		t.Fatalf("mysql upsert stmt mismatch: %s", mysqlStore.upsertIngestStateStmt())
+	}
+	if !strings.Contains(mysqlStore.upsertConfigBlobStmt(), "ON DUPLICATE KEY UPDATE") {
+		t.Fatalf("mysql config blob upsert stmt mismatch: %s", mysqlStore.upsertConfigBlobStmt())
+	}
+}
+
+func TestConfigBlobSQLiteRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "mamotama.db")
+
+	if err := InitLogsStatsStoreWithBackend("db", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected sqlite store")
+	}
+
+	raw := []byte("ALLOW prefix=/assets methods=GET,HEAD ttl=300\n")
+	if err := store.UpsertConfigBlob(cacheConfigBlobKey, raw, "", time.Unix(1700000000, 0).UTC()); err != nil {
+		t.Fatalf("upsert config blob: %v", err)
+	}
+
+	gotRaw, gotETag, found, err := store.GetConfigBlob(cacheConfigBlobKey)
+	if err != nil {
+		t.Fatalf("get config blob: %v", err)
+	}
+	if !found {
+		t.Fatal("expected config blob to exist")
+	}
+	if strings.TrimSpace(gotETag) == "" {
+		t.Fatal("etag should not be empty")
+	}
+	if string(gotRaw) != string(raw) {
+		t.Fatalf("raw mismatch: got=%q want=%q", string(gotRaw), string(raw))
+	}
+}
+
+func TestConfigBlobMySQLRoundTrip(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("WAF_TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("WAF_TEST_MYSQL_DSN is not set")
+	}
+
+	if err := InitLogsStatsStoreWithBackend("db", "mysql", "", dsn, 30); err != nil {
+		t.Fatalf("init mysql store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected mysql store")
+	}
+	if _, err := store.db.Exec(`DELETE FROM config_blobs WHERE config_key = ?`, cacheConfigBlobKey); err != nil {
+		t.Fatalf("cleanup config_blob: %v", err)
+	}
+
+	raw := []byte("DENY prefix=/mamotama-api/ methods=GET,HEAD\n")
+	if err := store.UpsertConfigBlob(cacheConfigBlobKey, raw, "", time.Now().UTC()); err != nil {
+		t.Fatalf("upsert config blob: %v", err)
+	}
+
+	gotRaw, gotETag, found, err := store.GetConfigBlob(cacheConfigBlobKey)
+	if err != nil {
+		t.Fatalf("get config blob: %v", err)
+	}
+	if !found {
+		t.Fatal("expected config blob to exist")
+	}
+	if strings.TrimSpace(gotETag) == "" {
+		t.Fatal("etag should not be empty")
+	}
+	if string(gotRaw) != string(raw) {
+		t.Fatalf("raw mismatch: got=%q want=%q", string(gotRaw), string(raw))
 	}
 }
 

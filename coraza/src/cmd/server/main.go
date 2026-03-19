@@ -144,6 +144,9 @@ func main() {
 	})
 
 	const cacheConfPath = "conf/cache.conf"
+	if err := handler.SyncCacheRulesStorage(); err != nil {
+		log.Printf("[CACHE][DB][WARN] sync failed (fallback=file): %v", err)
+	}
 	stopWatch, err := cacheconf.Watch(cacheConfPath, func(rs *cacheconf.Ruleset) {
 		//
 	})
