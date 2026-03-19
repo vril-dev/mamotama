@@ -16,10 +16,18 @@ import (
 
 func main() {
 	config.LoadEnv()
-	if err := handler.InitLogsStatsStore(config.DBEnabled, config.DBPath, config.DBRetentionDays); err != nil {
-		log.Printf("[DB][INIT][WARN] failed to initialize sqlite stats store (fallback=file): %v", err)
+	if err := handler.InitLogsStatsStoreWithBackend(
+		config.StorageBackend,
+		config.DBDriver,
+		config.DBPath,
+		config.DBDSN,
+		config.DBRetentionDays,
+	); err != nil {
+		log.Printf("[DB][INIT][WARN] failed to initialize db store (fallback=file): %v", err)
 	} else if config.DBEnabled {
-		log.Printf("[DB][INIT] sqlite stats store enabled (path=%s retention_days=%d)", config.DBPath, config.DBRetentionDays)
+		log.Printf("[DB][INIT] db store enabled (backend=%s driver=%s path=%s retention_days=%d)", config.StorageBackend, config.DBDriver, config.DBPath, config.DBRetentionDays)
+	} else {
+		log.Printf("[DB][INIT] storage backend=%s", config.StorageBackend)
 	}
 	waf.InitWAF()
 	if err := handler.InitCountryBlock(config.CountryBlockFile); err != nil {

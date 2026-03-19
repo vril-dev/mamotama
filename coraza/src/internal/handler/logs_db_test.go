@@ -444,6 +444,45 @@ func TestWAFEventStoreStatusSnapshot(t *testing.T) {
 	}
 }
 
+func TestInitLogsStatsStoreWithBackend_FileDisablesStore(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "mamotama.db")
+
+	if err := InitLogsStatsStoreWithBackend("db", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("init db backend: %v", err)
+	}
+	if getLogsStatsStore() == nil {
+		t.Fatal("expected sqlite store")
+	}
+
+	if err := InitLogsStatsStoreWithBackend("file", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("switch to file backend: %v", err)
+	}
+	if getLogsStatsStore() != nil {
+		t.Fatal("store should be nil when backend=file")
+	}
+}
+
+func TestInitLogsStatsStoreWithBackend_MySQLReserved(t *testing.T) {
+	err := InitLogsStatsStoreWithBackend("db", "mysql", "", "user:pass@tcp(localhost:3306)/mamotama", 30)
+	if err == nil {
+		t.Fatal("expected error for mysql reserved driver")
+	}
+	if !strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInitLogsStatsStoreWithBackend_InvalidBackend(t *testing.T) {
+	err := InitLogsStatsStoreWithBackend("oracle", "sqlite", "ignored.db", "", 30)
+	if err == nil {
+		t.Fatal("expected error for invalid storage backend")
+	}
+	if !strings.Contains(err.Error(), "unsupported storage backend") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func callLogsStats(t *testing.T, path string) logsStatsResp {
 	t.Helper()
 

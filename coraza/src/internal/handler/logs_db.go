@@ -22,6 +22,11 @@ import (
 const (
 	logStatsStoreSourceWAF = "waf"
 
+	logStatsStorageBackendFile = "file"
+	logStatsStorageBackendDB   = "db"
+	logStatsDBDriverSQLite     = "sqlite"
+	logStatsDBDriverMySQL      = "mysql"
+
 	maxDBMatchedValueBytes = 2048
 )
 
@@ -59,6 +64,16 @@ type wafEventStoreStatus struct {
 }
 
 func InitLogsStatsStore(enabled bool, dbPath string, retentionDays int) error {
+	backend := logStatsStorageBackendFile
+	driver := ""
+	if enabled {
+		backend = logStatsStorageBackendDB
+		driver = logStatsDBDriverSQLite
+	}
+	return InitLogsStatsStoreWithBackend(backend, driver, dbPath, "", retentionDays)
+}
+
+func InitLogsStatsStoreWithBackend(storageBackend, dbDriver, dbPath, dbDSN string, retentionDays int) error {
 	logStatsStoreMu.Lock()
 	defer logStatsStoreMu.Unlock()
 
@@ -67,13 +82,39 @@ func InitLogsStatsStore(enabled bool, dbPath string, retentionDays int) error {
 		logStatsStore = nil
 	}
 
-	if !enabled {
+	backend := strings.ToLower(strings.TrimSpace(storageBackend))
+	if backend == "" {
+		backend = logStatsStorageBackendFile
+	}
+	if backend == logStatsStorageBackendFile {
 		return nil
 	}
+	if backend != logStatsStorageBackendDB {
+		return fmt.Errorf("unsupported storage backend: %s", backend)
+	}
 
-	store, err := openWAFEventStore(dbPath, retentionDays)
-	if err != nil {
-		return err
+	driver := strings.ToLower(strings.TrimSpace(dbDriver))
+	if driver == "" {
+		driver = logStatsDBDriverSQLite
+	}
+
+	var (
+		store *wafEventStore
+		err   error
+	)
+	switch driver {
+	case logStatsDBDriverSQLite:
+		store, err = openWAFEventStore(dbPath, retentionDays)
+		if err != nil {
+			return err
+		}
+	case logStatsDBDriverMySQL:
+		if strings.TrimSpace(dbDSN) == "" {
+			return fmt.Errorf("mysql driver requires WAF_DB_DSN")
+		}
+		return fmt.Errorf("db driver mysql is not implemented yet")
+	default:
+		return fmt.Errorf("unsupported db driver: %s", driver)
 	}
 	logStatsStore = store
 	return nil
