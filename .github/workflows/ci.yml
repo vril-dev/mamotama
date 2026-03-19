@@ -92,8 +92,10 @@ jobs:
       matrix:
         include:
           - mode: file
+            waf_storage_backend: "file"
             waf_db_enabled: "false"
           - mode: sqlite
+            waf_storage_backend: "db"
             waf_db_enabled: "true"
     steps:
       - uses: actions/checkout@v4
@@ -108,6 +110,7 @@ jobs:
         env:
           GOTESTWAF_AUTO_DOWN: "1"
           MIN_BLOCKED_RATIO: "70"
+          WAF_STORAGE_BACKEND: ${{ matrix.waf_storage_backend }}
           WAF_DB_ENABLED: ${{ matrix.waf_db_enabled }}
           WAF_DB_RETENTION_DAYS: "30"
         run: ./scripts/run_gotestwaf.sh
