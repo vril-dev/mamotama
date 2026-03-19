@@ -40,6 +40,17 @@ Coraza + CRS WAFプロジェクト
 
 `.env` ファイルで挙動を制御可能です。
 
+### Docker / ローカル MySQL（任意）
+
+| 変数名 | 例 | 説明 |
+| --- | --- | --- |
+| `MYSQL_PORT` | `13306` | MySQL コンテナ `3306` に割り当てるホスト側ポート（`mysql` profile 有効時）。 |
+| `MYSQL_DATABASE` | `mamotama` | ローカル MySQL コンテナで初期作成するDB名。 |
+| `MYSQL_USER` | `mamotama` | ローカル MySQL コンテナで作成するアプリ用ユーザー。 |
+| `MYSQL_PASSWORD` | `mamotama` | `MYSQL_USER` のパスワード。 |
+| `MYSQL_ROOT_PASSWORD` | `mamotama-root` | ローカル MySQL コンテナの root パスワード。 |
+| `MYSQL_TZ` | `UTC` | コンテナのタイムゾーン。 |
+
 ### Nginx
 
 | 変数名 | 例 | 説明 |
@@ -74,9 +85,13 @@ Coraza + CRS WAFプロジェクト
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | `simulate=false` の適用時に承認トークンを必須化するか。 |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | 承認トークンの有効期限（秒）。 |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | propose/apply 操作の監査ログ出力先。 |
-| `WAF_DB_ENABLED` | `false` | SQLite ベースのログストアを有効化。`true` のとき `waf` ソースの `/logs/stats` `/logs/read` `/logs/download` と FP チューナーの最新イベント取得が増分DB経路を利用。 |
-| `WAF_DB_PATH` | `logs/coraza/mamotama.db` | `WAF_DB_ENABLED=true` 時に利用する SQLite ファイルパス。 |
-| `WAF_DB_RETENTION_DAYS` | `30` | SQLite `waf_events` の保持日数。これより古い行は同期時に削除。`0` で削除無効。 |
+| `WAF_STORAGE_BACKEND` | `file` | ストレージバックエンド選択。`file` は従来のファイル運用、`db` はDBログストア + 設定/ルールBlob同期を有効化。 |
+| `WAF_DB_DRIVER` | `sqlite` | `WAF_STORAGE_BACKEND=db` 時のDBドライバ。対応値: `sqlite` / `mysql`（ログストア・設定/ルールBlob用途で実装済み）。 |
+| `WAF_DB_ENABLED` | `false` | 互換用フラグ。`WAF_STORAGE_BACKEND` 未指定時のみ参照され、`true` で `db`、`false` で `file` にマップ。 |
+| `WAF_DB_DSN` | (空) | ネットワークDB向けDSN（例: MySQL）。`WAF_DB_DRIVER=mysql` 時は必須。sqliteは `WAF_DB_PATH` を利用。 |
+| `WAF_DB_PATH` | `logs/coraza/mamotama.db` | `WAF_STORAGE_BACKEND=db` かつ `WAF_DB_DRIVER=sqlite` 時に利用するSQLiteファイルパス。 |
+| `WAF_DB_RETENTION_DAYS` | `30` | DBストア `waf_events` の保持日数。これより古い行は同期時に削除。`0` で削除無効（設定Blobは削除対象外）。 |
+| `WAF_DB_SYNC_INTERVAL_SEC` | `0` | DB→実行時設定の定期同期間隔（秒）。`0` で無効、`1` 以上で複数Corazaノード間の定期整合を有効化。 |
 | `WAF_STRICT_OVERRIDE` | `false` | 特別ルール読み込み失敗時の挙動。`true`で即終了、`false`で警告のみ継続。 |
 | `WAF_API_BASEPATH` | `/mamotama-api` | 管理APIのベースパス（Go側のルーティング基準）。 |
 | `WAF_API_KEY_PRIMARY` | `…` | 管理API用の主キー（`X-API-Key`）。 |
@@ -110,7 +125,7 @@ Coraza + CRS WAFプロジェクト
 | --- | --- |
 | `/status` | WAFの動作状況、設定の確認 |
 | `/logs` | WAFログの取得・表示 |
-| `/rules` | 使用中のルールファイルの一覧表示 |
+| `/rules` | 使用中のベースルールファイル（`rules/mamotama.conf` など）の閲覧・編集 |
 | `/rule-sets` | CRS本体ルール（`rules/crs/rules/*.conf`）の有効/無効切替 |
 | `/bypass` | バイパス設定の閲覧・編集（waf.bypassを直接操作） |
 | `/country-block` | 国別ブロック設定の閲覧・編集（country-block.conf を直接操作） |
@@ -166,6 +181,20 @@ docker compose up -d coraza nginx
 ```
 
 環境変数 `.env` に `VITE_APP_BASE_PATH` および `VITE_CORAZA_API_BASE` を定義することで、ルートパスを変更できます。
+
+#### 任意: ローカル MySQL コンテナ（profile: `mysql`）
+
+将来の DB ドライバ検証用に、ローカル MySQL コンテナを起動できます:
+
+```bash
+docker compose --profile mysql up -d mysql
+```
+
+MySQL をDBログ/設定運用で使う場合は、`WAF_STORAGE_BACKEND=db`・`WAF_DB_DRIVER=mysql`・`WAF_DB_DSN`（例: `mamotama:mamotama@tcp(mysql:3306)/mamotama?charset=utf8mb4&parseTime=true`）を設定してください。
+
+複数ノード運用では `WAF_DB_SYNC_INTERVAL_SEC`（例: `10`）を設定すると、各ノードが `config_blobs` から定期的に実行時ファイルを同期し、内容差分がある場合のみ reload します。
+
+スケールアウト運用では、共有MySQLを使う `db + mysql` を標準構成にしてください。`file` と `db + sqlite` は基本的に単一ノード運用/ローカル検証向けです。
 
 ### WAF回帰テスト（GoTestWAF）
 
@@ -565,11 +594,13 @@ GitHub Actions の `ci` ワークフローで以下を検証します。
 
 - `go test ./...`（`coraza/src`）
 - `docker compose config` の妥当性確認
+- MySQL ログストア統合テスト（`docker compose --profile mysql up -d mysql` + `go test ./internal/handler -run TestLogsStatsMySQLStoreAggregatesAndIngestsIncrementally`）
 - `./scripts/run_gotestwaf.sh`（`waf-test` マトリクス、`MIN_BLOCKED_RATIO=70`、`WAF_DB_ENABLED=false/true`）
 
 運用では、以下をブランチ保護の Required Checks に設定してください。
 
 - `ci / go-test`
+- `ci / mysql-logstore-test`
 - `ci / compose-validate`
 - `ci / waf-test (file)`
 - `ci / waf-test (sqlite)`
@@ -591,6 +622,9 @@ SQLite 運用手順は以下を参照してください。
 
 ---
 
-## 免責事項
+## mamotama とは？
 
-本プロジェクトはセキュリティ学習・検証用途を主目的としており、本番運用環境で使用する際は十分な評価・チューニングを行ってください。
+**mamotama** は日本語の **「護りたまえ」 (mamoritamae)** に由来し、
+「どうか護ってください」や「護りを与えてください」という意味を持ちます。
+
+この名前には、Webアプリケーションとインフラを守るというプロジェクトの目的を込めています。

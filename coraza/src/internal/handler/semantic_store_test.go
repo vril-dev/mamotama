@@ -3,6 +3,9 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -107,5 +110,134 @@ func TestEvaluateSemantic_ChallengeCookiePass(t *testing.T) {
 	req2.AddCookie(&http.Cookie{Name: rt.challengeCookieName, Value: token})
 	if !HasValidSemanticChallengeCookie(req2, "10.0.0.1", now.Add(1*time.Second)) {
 		t.Fatal("request with valid cookie should pass challenge")
+	}
+}
+
+func TestSyncSemanticStorage_SeedsDBFromFileWhenMissingBlob(t *testing.T) {
+	restore := saveSemanticStateForTest()
+	defer restore()
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "semantic.conf")
+	raw := `{
+  "enabled": true,
+  "mode": "challenge",
+  "exempt_path_prefixes": ["/healthz"],
+  "log_threshold": 2,
+  "challenge_threshold": 4,
+  "block_threshold": 8,
+  "max_inspect_body": 8192
+}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write semantic file: %v", err)
+	}
+	if err := InitSemantic(path); err != nil {
+		t.Fatalf("init semantic: %v", err)
+	}
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStoreWithBackend("db", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	if err := SyncSemanticStorage(); err != nil {
+		t.Fatalf("sync semantic storage: %v", err)
+	}
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected sqlite store")
+	}
+	gotRaw, _, found, err := store.GetConfigBlob(semanticConfigBlobKey)
+	if err != nil {
+		t.Fatalf("get config blob: %v", err)
+	}
+	if !found {
+		t.Fatal("expected semantic config blob to be seeded")
+	}
+	if strings.TrimSpace(string(gotRaw)) != strings.TrimSpace(raw) {
+		t.Fatalf("seeded blob mismatch:\n got=%s\nwant=%s", string(gotRaw), raw)
+	}
+}
+
+func TestSyncSemanticStorage_RestoresFileAndRuntimeFromDB(t *testing.T) {
+	restore := saveSemanticStateForTest()
+	defer restore()
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "semantic.conf")
+	fileRaw := `{
+  "enabled": false,
+  "mode": "off",
+  "exempt_path_prefixes": [],
+  "log_threshold": 4,
+  "challenge_threshold": 7,
+  "block_threshold": 9,
+  "max_inspect_body": 16384
+}`
+	if err := os.WriteFile(path, []byte(fileRaw), 0o644); err != nil {
+		t.Fatalf("write semantic file: %v", err)
+	}
+	if err := InitSemantic(path); err != nil {
+		t.Fatalf("init semantic: %v", err)
+	}
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStoreWithBackend("db", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected sqlite store")
+	}
+	dbRaw := `{
+  "enabled": true,
+  "mode": "block",
+  "exempt_path_prefixes": ["/healthz"],
+  "log_threshold": 1,
+  "challenge_threshold": 2,
+  "block_threshold": 3,
+  "max_inspect_body": 8192
+}`
+	if err := store.UpsertConfigBlob(semanticConfigBlobKey, []byte(dbRaw), "", time.Now().UTC()); err != nil {
+		t.Fatalf("upsert config blob: %v", err)
+	}
+
+	if err := SyncSemanticStorage(); err != nil {
+		t.Fatalf("sync semantic storage: %v", err)
+	}
+
+	gotFileRaw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read semantic file: %v", err)
+	}
+	if strings.TrimSpace(string(gotFileRaw)) != strings.TrimSpace(dbRaw) {
+		t.Fatalf("file should be restored from db blob:\n got=%s\nwant=%s", string(gotFileRaw), dbRaw)
+	}
+
+	cfg := GetSemanticConfig()
+	if !cfg.Enabled || cfg.Mode != "block" || cfg.BlockThreshold != 3 {
+		t.Fatalf("runtime config mismatch: enabled=%v mode=%q block_threshold=%d", cfg.Enabled, cfg.Mode, cfg.BlockThreshold)
+	}
+}
+
+func saveSemanticStateForTest() func() {
+	semanticMu.RLock()
+	oldPath := semanticPath
+	oldRuntime := semanticRuntime
+	semanticMu.RUnlock()
+
+	return func() {
+		semanticMu.Lock()
+		semanticPath = oldPath
+		semanticRuntime = oldRuntime
+		semanticMu.Unlock()
 	}
 }

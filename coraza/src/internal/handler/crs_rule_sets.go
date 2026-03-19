@@ -3,10 +3,13 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/bypassconf"
@@ -25,9 +28,27 @@ type crsRuleSetPutBody struct {
 	Enabled []string `json:"enabled"`
 }
 
+const crsDisabledConfigBlobKey = "crs_disabled_rules"
+
 func GetCRSRuleSets(c *gin.Context) {
+	raw, _ := os.ReadFile(config.CRSDisabledFile)
+	if store := getLogsStatsStore(); store != nil {
+		dbRaw, dbETag, found, err := store.GetConfigBlob(crsDisabledConfigBlobKey)
+		if err != nil {
+			log.Printf("[CRS][DB][WARN] get config blob failed: %v", err)
+		} else if found {
+			raw = dbRaw
+			if strings.TrimSpace(dbETag) == "" {
+				dbETag = bypassconf.ComputeETag(dbRaw)
+			}
+		} else if len(raw) > 0 {
+			if err := store.UpsertConfigBlob(crsDisabledConfigBlobKey, raw, bypassconf.ComputeETag(raw), time.Now().UTC()); err != nil {
+				log.Printf("[CRS][DB][WARN] seed config blob failed: %v", err)
+			}
+		}
+	}
+
 	if !config.CRSEnable {
-		raw, _ := os.ReadFile(config.CRSDisabledFile)
 		c.JSON(http.StatusOK, gin.H{
 			"crs_enabled":    false,
 			"disabled_file":  config.CRSDisabledFile,
@@ -47,12 +68,7 @@ func GetCRSRuleSets(c *gin.Context) {
 		return
 	}
 
-	raw, _ := os.ReadFile(config.CRSDisabledFile)
-	disabledSet, err := crsselection.LoadDisabledFile(config.CRSDisabledFile)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	disabledSet := crsselection.ParseDisabled(string(raw))
 
 	items := make([]crsRuleSetItem, 0, len(crsFiles))
 	enabled := make([]string, 0, len(crsFiles))
@@ -119,6 +135,24 @@ func PutCRSRuleSets(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	store := getLogsStatsStore()
+	if store != nil {
+		dbRaw, dbETag, found, getErr := store.GetConfigBlob(crsDisabledConfigBlobKey)
+		if getErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": getErr.Error()})
+			return
+		}
+		if found {
+			curRaw = dbRaw
+			if strings.TrimSpace(dbETag) != "" {
+				curETag := bypassconf.ComputeETag(curRaw)
+				if ifMatch := c.GetHeader("If-Match"); ifMatch != "" && ifMatch != dbETag && ifMatch != curETag {
+					c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": dbETag})
+					return
+				}
+			}
+		}
+	}
 	curETag := bypassconf.ComputeETag(curRaw)
 	if ifMatch := c.GetHeader("If-Match"); ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
@@ -163,11 +197,45 @@ func PutCRSRuleSets(c *gin.Context) {
 		return
 	}
 
+	if store != nil {
+		nextETag := bypassconf.ComputeETag(nextRaw)
+		if err := store.UpsertConfigBlob(crsDisabledConfigBlobKey, nextRaw, nextETag, time.Now().UTC()); err != nil {
+			rollbackErr := rollbackCRSDisabledFile(config.CRSDisabledFile, hadFile, curRaw)
+			_ = waf.ReloadBaseWAF()
+			msg := fmt.Sprintf("db sync failed and rollback applied: %v", err)
+			if rollbackErr != nil {
+				msg = fmt.Sprintf("%s (rollback error: %v)", msg, rollbackErr)
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"ok":             true,
 		"etag":           bypassconf.ComputeETag(nextRaw),
 		"hot_reloaded":   true,
 		"disabled_count": len(disabledNames),
+	})
+}
+
+func SyncCRSDisabledStorage() error {
+	return syncConfigBlobFilePath(configBlobSyncOptions{
+		ConfigKey: crsDisabledConfigBlobKey,
+		Path:      config.CRSDisabledFile,
+		WriteRaw: func(path string, raw []byte) error {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return err
+			}
+			return bypassconf.AtomicWriteWithBackup(path, raw)
+		},
+		Reload: func() error {
+			if !config.CRSEnable {
+				return nil
+			}
+			return waf.ReloadBaseWAF()
+		},
+		SkipWriteIfEqual: true,
 	})
 }
 
