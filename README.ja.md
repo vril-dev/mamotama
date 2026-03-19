@@ -40,6 +40,17 @@ Coraza + CRS WAFプロジェクト
 
 `.env` ファイルで挙動を制御可能です。
 
+### Docker / ローカル MySQL（任意）
+
+| 変数名 | 例 | 説明 |
+| --- | --- | --- |
+| `MYSQL_PORT` | `13306` | MySQL コンテナ `3306` に割り当てるホスト側ポート（`mysql` profile 有効時）。 |
+| `MYSQL_DATABASE` | `mamotama` | ローカル MySQL コンテナで初期作成するDB名。 |
+| `MYSQL_USER` | `mamotama` | ローカル MySQL コンテナで作成するアプリ用ユーザー。 |
+| `MYSQL_PASSWORD` | `mamotama` | `MYSQL_USER` のパスワード。 |
+| `MYSQL_ROOT_PASSWORD` | `mamotama-root` | ローカル MySQL コンテナの root パスワード。 |
+| `MYSQL_TZ` | `UTC` | コンテナのタイムゾーン。 |
+
 ### Nginx
 
 | 変数名 | 例 | 説明 |
@@ -169,6 +180,16 @@ docker compose up -d coraza nginx
 ```
 
 環境変数 `.env` に `VITE_APP_BASE_PATH` および `VITE_CORAZA_API_BASE` を定義することで、ルートパスを変更できます。
+
+#### 任意: ローカル MySQL コンテナ（profile: `mysql`）
+
+将来の DB ドライバ検証用に、ローカル MySQL コンテナを起動できます:
+
+```bash
+docker compose --profile mysql up -d mysql
+```
+
+補足（2026年3月19日時点）: Go 実行系の `WAF_DB_DRIVER=mysql` は未実装のため、現時点では環境準備用途です。
 
 ### WAF回帰テスト（GoTestWAF）
 

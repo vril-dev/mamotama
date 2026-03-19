@@ -1,4 +1,24 @@
 services:    
+  mysql:
+    image: mysql:8.4
+    profiles: ["mysql"]
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-mamotama}
+      - MYSQL_USER=${MYSQL_USER:-mamotama}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-mamotama}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-mamotama-root}
+      - TZ=${MYSQL_TZ:-UTC}
+    ports:
+      - "${MYSQL_PORT:-13306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
   coraza:
     user: "${PUID}:${GUID}"
     build:
@@ -118,3 +138,4 @@ services:
 
 volumes:
   web_node_modules:
+  mysql_data:

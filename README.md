@@ -39,6 +39,17 @@ Edit `data/rules/crs/crs-setup.conf` as needed (for example, paranoia level and 
 
 You can control behavior via `.env`.
 
+### Docker / Local MySQL (Optional)
+
+| Variable | Example | Description |
+| --- | --- | --- |
+| `MYSQL_PORT` | `13306` | Host port mapped to MySQL container `3306` (used when profile `mysql` is enabled). |
+| `MYSQL_DATABASE` | `mamotama` | Initial database name created in local MySQL container. |
+| `MYSQL_USER` | `mamotama` | Application user created for local MySQL container. |
+| `MYSQL_PASSWORD` | `mamotama` | Password for `MYSQL_USER`. |
+| `MYSQL_ROOT_PASSWORD` | `mamotama-root` | Root password for local MySQL container. |
+| `MYSQL_TZ` | `UTC` | Container timezone. |
+
 ### Nginx
 
 | Variable | Example | Description |
@@ -168,6 +179,16 @@ docker compose up -d coraza nginx
 ```
 
 You can change the root path by setting `VITE_APP_BASE_PATH` and `VITE_CORAZA_API_BASE` in `.env`.
+
+#### Optional: Local MySQL Container (profile: `mysql`)
+
+For future DB-driver validation, you can start a local MySQL container:
+
+```bash
+docker compose --profile mysql up -d mysql
+```
+
+Current note (as of March 19, 2026): `WAF_DB_DRIVER=mysql` is not implemented in Go runtime yet, so this container is for environment preparation only.
 
 ### WAF Regression Test (GoTestWAF)
 
