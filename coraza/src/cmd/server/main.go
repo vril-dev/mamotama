@@ -30,6 +30,12 @@ func main() {
 		log.Printf("[DB][INIT] storage backend=%s", config.StorageBackend)
 	}
 	waf.InitWAF()
+	if err := handler.SyncCRSDisabledStorage(); err != nil {
+		log.Printf("[CRS][DB][WARN] sync failed (fallback=file): %v", err)
+	}
+	if err := handler.SyncBypassStorage(); err != nil {
+		log.Printf("[BYPASS][DB][WARN] sync failed (fallback=file): %v", err)
+	}
 	if err := handler.InitCountryBlock(config.CountryBlockFile); err != nil {
 		log.Printf("[COUNTRY_BLOCK][INIT][ERR] %v (path=%s)", err, config.CountryBlockFile)
 	} else {
@@ -49,11 +55,17 @@ func main() {
 	if err := handler.InitBotDefense(config.BotDefenseFile); err != nil {
 		log.Printf("[BOT_DEFENSE][INIT][ERR] %v (path=%s)", err, config.BotDefenseFile)
 	} else {
+		if err := handler.SyncBotDefenseStorage(); err != nil {
+			log.Printf("[BOT_DEFENSE][DB][WARN] sync failed (fallback=file): %v", err)
+		}
 		log.Printf("[BOT_DEFENSE][INIT] loaded")
 	}
 	if err := handler.InitSemantic(config.SemanticFile); err != nil {
 		log.Printf("[SEMANTIC][INIT][ERR] %v (path=%s)", err, config.SemanticFile)
 	} else {
+		if err := handler.SyncSemanticStorage(); err != nil {
+			log.Printf("[SEMANTIC][DB][WARN] sync failed (fallback=file): %v", err)
+		}
 		log.Printf("[SEMANTIC][INIT] loaded")
 	}
 

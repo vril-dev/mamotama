@@ -84,12 +84,12 @@ You can control behavior via `.env`.
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | Require approval token for non-simulated apply (`/fp-tuner/apply` with `simulate=false`). |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | Approval token TTL in seconds. |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | Audit log destination for propose/apply actions. |
-| `WAF_STORAGE_BACKEND` | `file` | Storage backend selector. `file` disables DB log store; `db` enables DB-backed log store. |
-| `WAF_DB_DRIVER` | `sqlite` | DB driver when `WAF_STORAGE_BACKEND=db`. Supported: `sqlite`, `mysql` (both implemented for log store). |
+| `WAF_STORAGE_BACKEND` | `file` | Storage backend selector. `file` keeps file-based operation; `db` enables DB-backed log store + config blob sync. |
+| `WAF_DB_DRIVER` | `sqlite` | DB driver when `WAF_STORAGE_BACKEND=db`. Supported: `sqlite`, `mysql` (implemented for log store and config blobs). |
 | `WAF_DB_ENABLED` | `false` | Legacy compatibility flag. If `WAF_STORAGE_BACKEND` is unset, `true` maps to `db` and `false` maps to `file`. |
 | `WAF_DB_DSN` | (empty) | DSN for network DB drivers (for example MySQL). Required when `WAF_DB_DRIVER=mysql`; sqlite uses `WAF_DB_PATH`. |
 | `WAF_DB_PATH` | `logs/coraza/mamotama.db` | SQLite file path used when `WAF_STORAGE_BACKEND=db` and `WAF_DB_DRIVER=sqlite`. |
-| `WAF_DB_RETENTION_DAYS` | `30` | Retention window for `waf_events` in DB store. Entries older than this are pruned on sync. `0` disables pruning. |
+| `WAF_DB_RETENTION_DAYS` | `30` | Retention window for `waf_events` in DB store. Entries older than this are pruned on sync. `0` disables pruning (config blobs are not pruned). |
 | `WAF_STRICT_OVERRIDE` | `false` | Behavior when a special-rule file fails to load. `true`: fail fast. `false`: warn and continue. |
 | `WAF_API_BASEPATH` | `/mamotama-api` | Base path for admin API routing on Go server. |
 | `WAF_API_KEY_PRIMARY` | `...` | Primary admin API key (`X-API-Key`). |
@@ -188,7 +188,7 @@ For future DB-driver validation, you can start a local MySQL container:
 docker compose --profile mysql up -d mysql
 ```
 
-When using MySQL for the log store, set `WAF_STORAGE_BACKEND=db`, `WAF_DB_DRIVER=mysql`, and `WAF_DB_DSN` (for example `mamotama:mamotama@tcp(mysql:3306)/mamotama?charset=utf8mb4&parseTime=true`).
+When using MySQL for DB-backed logs/configs, set `WAF_STORAGE_BACKEND=db`, `WAF_DB_DRIVER=mysql`, and `WAF_DB_DSN` (for example `mamotama:mamotama@tcp(mysql:3306)/mamotama?charset=utf8mb4&parseTime=true`).
 
 ### WAF Regression Test (GoTestWAF)
 

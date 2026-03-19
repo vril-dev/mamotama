@@ -85,12 +85,12 @@ Coraza + CRS WAFプロジェクト
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | `simulate=false` の適用時に承認トークンを必須化するか。 |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | 承認トークンの有効期限（秒）。 |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | propose/apply 操作の監査ログ出力先。 |
-| `WAF_STORAGE_BACKEND` | `file` | ストレージバックエンド選択。`file` はDBログストア無効、`db` はDBログストア有効。 |
-| `WAF_DB_DRIVER` | `sqlite` | `WAF_STORAGE_BACKEND=db` 時のDBドライバ。対応値: `sqlite` / `mysql`（ログストア用途で実装済み）。 |
+| `WAF_STORAGE_BACKEND` | `file` | ストレージバックエンド選択。`file` は従来のファイル運用、`db` はDBログストア + 設定Blob同期を有効化。 |
+| `WAF_DB_DRIVER` | `sqlite` | `WAF_STORAGE_BACKEND=db` 時のDBドライバ。対応値: `sqlite` / `mysql`（ログストア・設定Blob用途で実装済み）。 |
 | `WAF_DB_ENABLED` | `false` | 互換用フラグ。`WAF_STORAGE_BACKEND` 未指定時のみ参照され、`true` で `db`、`false` で `file` にマップ。 |
 | `WAF_DB_DSN` | (空) | ネットワークDB向けDSN（例: MySQL）。`WAF_DB_DRIVER=mysql` 時は必須。sqliteは `WAF_DB_PATH` を利用。 |
 | `WAF_DB_PATH` | `logs/coraza/mamotama.db` | `WAF_STORAGE_BACKEND=db` かつ `WAF_DB_DRIVER=sqlite` 時に利用するSQLiteファイルパス。 |
-| `WAF_DB_RETENTION_DAYS` | `30` | DBストア `waf_events` の保持日数。これより古い行は同期時に削除。`0` で削除無効。 |
+| `WAF_DB_RETENTION_DAYS` | `30` | DBストア `waf_events` の保持日数。これより古い行は同期時に削除。`0` で削除無効（設定Blobは削除対象外）。 |
 | `WAF_STRICT_OVERRIDE` | `false` | 特別ルール読み込み失敗時の挙動。`true`で即終了、`false`で警告のみ継続。 |
 | `WAF_API_BASEPATH` | `/mamotama-api` | 管理APIのベースパス（Go側のルーティング基準）。 |
 | `WAF_API_KEY_PRIMARY` | `…` | 管理API用の主キー（`X-API-Key`）。 |
@@ -189,7 +189,7 @@ docker compose up -d coraza nginx
 docker compose --profile mysql up -d mysql
 ```
 
-MySQL をログストアで使う場合は、`WAF_STORAGE_BACKEND=db`・`WAF_DB_DRIVER=mysql`・`WAF_DB_DSN`（例: `mamotama:mamotama@tcp(mysql:3306)/mamotama?charset=utf8mb4&parseTime=true`）を設定してください。
+MySQL をDBログ/設定運用で使う場合は、`WAF_STORAGE_BACKEND=db`・`WAF_DB_DRIVER=mysql`・`WAF_DB_DSN`（例: `mamotama:mamotama@tcp(mysql:3306)/mamotama?charset=utf8mb4&parseTime=true`）を設定してください。
 
 ### WAF回帰テスト（GoTestWAF）
 
