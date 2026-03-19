@@ -194,6 +194,8 @@ MySQL をDBログ/設定運用で使う場合は、`WAF_STORAGE_BACKEND=db`・`W
 
 複数ノード運用では `WAF_DB_SYNC_INTERVAL_SEC`（例: `10`）を設定すると、各ノードが `config_blobs` から定期的に実行時ファイルを同期し、内容差分がある場合のみ reload します。
 
+スケールアウト運用では、共有MySQLを使う `db + mysql` を標準構成にしてください。`file` と `db + sqlite` は基本的に単一ノード運用/ローカル検証向けです。
+
 ### WAF回帰テスト（GoTestWAF）
 
 ローカルで回帰テストを実行:

@@ -193,6 +193,8 @@ When using MySQL for DB-backed logs/configs, set `WAF_STORAGE_BACKEND=db`, `WAF_
 
 For multi-node operation, set `WAF_DB_SYNC_INTERVAL_SEC` (for example `10`) so each node periodically reconciles runtime files from `config_blobs` and applies reload only when content actually changes.
 
+Scale-out note: for multiple Coraza nodes, use a shared MySQL backend (`db + mysql`) as the standard setup. `file` and `db + sqlite` are intended for single-node or local validation use.
+
 ### WAF Regression Test (GoTestWAF)
 
 Run the local regression test:
