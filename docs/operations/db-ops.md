@@ -44,6 +44,7 @@ Current blob keys:
 - `bot_defense_rules` (`bot-defense.conf`)
 - `semantic_rules` (`semantic.conf`)
 - `crs_disabled_rules` (`crs-disabled.conf`)
+- `rule_file_sha256:<sha256(path)>` (base rule files listed in `WAF_RULES_FILE`, for example `rules/mamotama.conf`)
 
 At startup in DB mode, runtime still loads from files, and each config is synchronized with DB blobs.
 

@@ -1,11 +1,16 @@
 package handler
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/bypassconf"
@@ -97,6 +102,31 @@ func RulesHandler(c *gin.Context) {
 
 	for _, path := range files {
 		content, err := os.ReadFile(path)
+		if store := getLogsStatsStore(); store != nil {
+			key := ruleFileConfigBlobKey(path)
+			dbRaw, dbETag, found, dbErr := store.GetConfigBlob(key)
+			if dbErr != nil {
+				log.Printf("[RULES][DB][WARN] get config blob failed (path=%s): %v", path, dbErr)
+			} else if found {
+				if strings.TrimSpace(dbETag) == "" {
+					dbETag = bypassconf.ComputeETag(dbRaw)
+					if err := store.UpsertConfigBlob(key, dbRaw, dbETag, time.Now().UTC()); err != nil {
+						log.Printf("[RULES][DB][WARN] normalize etag failed (path=%s): %v", path, err)
+					}
+				}
+				result[path] = string(dbRaw)
+				out = append(out, gin.H{
+					"path": path,
+					"raw":  string(dbRaw),
+					"etag": dbETag,
+				})
+				continue
+			} else if err == nil && len(content) > 0 {
+				if err := store.UpsertConfigBlob(key, content, bypassconf.ComputeETag(content), time.Now().UTC()); err != nil {
+					log.Printf("[RULES][DB][WARN] seed config blob failed (path=%s): %v", path, err)
+				}
+			}
+		}
 		if err != nil {
 			result[path] = "[読込失敗] " + err.Error()
 			out = append(out, gin.H{
@@ -160,12 +190,30 @@ func PutRules(c *gin.Context) {
 		return
 	}
 
-	curRaw, err := os.ReadFile(target)
+	store := getLogsStatsStore()
+	curRaw, hadFile, err := readFileMaybe(target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	curETag := bypassconf.ComputeETag(curRaw)
+	if store != nil {
+		key := ruleFileConfigBlobKey(target)
+		dbRaw, dbETag, found, getErr := store.GetConfigBlob(key)
+		if getErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": getErr.Error()})
+			return
+		}
+		if found {
+			curRaw = dbRaw
+			if strings.TrimSpace(dbETag) == "" {
+				dbETag = bypassconf.ComputeETag(dbRaw)
+			}
+			curETag = dbETag
+		}
+	}
+
 	if ifMatch := c.GetHeader("If-Match"); ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
 		return
@@ -176,13 +224,17 @@ func PutRules(c *gin.Context) {
 		return
 	}
 
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	if err := bypassconf.AtomicWriteWithBackup(target, []byte(in.Raw)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	if err := waf.ReloadBaseWAF(); err != nil {
-		_ = bypassconf.AtomicWriteWithBackup(target, curRaw)
+		_ = rollbackRuleFile(target, hadFile, curRaw)
 		_ = waf.ReloadBaseWAF()
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": fmt.Sprintf("reload failed and rollback applied: %v", err),
@@ -191,6 +243,20 @@ func PutRules(c *gin.Context) {
 	}
 
 	newETag := bypassconf.ComputeETag([]byte(in.Raw))
+	if store != nil {
+		key := ruleFileConfigBlobKey(target)
+		if err := store.UpsertConfigBlob(key, []byte(in.Raw), newETag, time.Now().UTC()); err != nil {
+			rollbackErr := rollbackRuleFile(target, hadFile, curRaw)
+			_ = waf.ReloadBaseWAF()
+			msg := fmt.Sprintf("db sync failed and rollback applied: %v", err)
+			if rollbackErr != nil {
+				msg = fmt.Sprintf("%s (rollback error: %v)", msg, rollbackErr)
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"ok":            true,
 		"etag":          newETag,
@@ -200,11 +266,6 @@ func PutRules(c *gin.Context) {
 }
 
 func configuredRuleFiles() []string {
-	files, err := waf.PrepareInitialRuleFiles()
-	if err == nil {
-		return files
-	}
-
 	parts := strings.Split(config.RulesFile, ",")
 	out := make([]string, 0, len(parts))
 	seen := map[string]struct{}{}
@@ -233,4 +294,69 @@ func ensureEditableRulePath(path string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("path is not editable: %s", path)
+}
+
+func ruleFileConfigBlobKey(path string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	sum := sha256.Sum256([]byte(cleaned))
+	return "rule_file_sha256:" + hex.EncodeToString(sum[:])
+}
+
+func SyncRuleFilesStorage() error {
+	store := getLogsStatsStore()
+	if store == nil {
+		return nil
+	}
+
+	for _, path := range configuredRuleFiles() {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+
+		fileRaw, hadFile, err := readFileMaybe(path)
+		if err != nil {
+			return err
+		}
+		key := ruleFileConfigBlobKey(path)
+		dbRaw, dbETag, found, err := store.GetConfigBlob(key)
+		if err != nil {
+			return err
+		}
+
+		if found {
+			if !hadFile || !bytes.Equal(fileRaw, dbRaw) {
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					return err
+				}
+				if err := bypassconf.AtomicWriteWithBackup(path, dbRaw); err != nil {
+					return err
+				}
+			}
+			if strings.TrimSpace(dbETag) == "" {
+				dbETag = bypassconf.ComputeETag(dbRaw)
+				if err := store.UpsertConfigBlob(key, dbRaw, dbETag, time.Now().UTC()); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		if !hadFile || len(fileRaw) == 0 {
+			continue
+		}
+		if err := store.UpsertConfigBlob(key, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rollbackRuleFile(path string, hadFile bool, raw []byte) error {
+	if hadFile {
+		return bypassconf.AtomicWriteWithBackup(path, raw)
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

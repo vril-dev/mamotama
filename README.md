@@ -84,8 +84,8 @@ You can control behavior via `.env`.
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | Require approval token for non-simulated apply (`/fp-tuner/apply` with `simulate=false`). |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | Approval token TTL in seconds. |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | Audit log destination for propose/apply actions. |
-| `WAF_STORAGE_BACKEND` | `file` | Storage backend selector. `file` keeps file-based operation; `db` enables DB-backed log store + config blob sync. |
-| `WAF_DB_DRIVER` | `sqlite` | DB driver when `WAF_STORAGE_BACKEND=db`. Supported: `sqlite`, `mysql` (implemented for log store and config blobs). |
+| `WAF_STORAGE_BACKEND` | `file` | Storage backend selector. `file` keeps file-based operation; `db` enables DB-backed log store + config/rule blob sync. |
+| `WAF_DB_DRIVER` | `sqlite` | DB driver when `WAF_STORAGE_BACKEND=db`. Supported: `sqlite`, `mysql` (implemented for log store and config/rule blobs). |
 | `WAF_DB_ENABLED` | `false` | Legacy compatibility flag. If `WAF_STORAGE_BACKEND` is unset, `true` maps to `db` and `false` maps to `file`. |
 | `WAF_DB_DSN` | (empty) | DSN for network DB drivers (for example MySQL). Required when `WAF_DB_DRIVER=mysql`; sqlite uses `WAF_DB_PATH`. |
 | `WAF_DB_PATH` | `logs/coraza/mamotama.db` | SQLite file path used when `WAF_STORAGE_BACKEND=db` and `WAF_DB_DRIVER=sqlite`. |
@@ -123,7 +123,7 @@ For local testing only, you can temporarily relax this with `WAF_ALLOW_INSECURE_
 | --- | --- |
 | `/status` | WAF runtime status and configuration overview |
 | `/logs` | Fetch and view WAF logs |
-| `/rules` | View/edit active base rule files |
+| `/rules` | View/edit active base rule files (`rules/mamotama.conf` etc.) |
 | `/rule-sets` | Enable/disable CRS core rule files (`rules/crs/rules/*.conf`) |
 | `/bypass` | View/edit bypass config directly (`waf.bypass`) |
 | `/country-block` | View/edit country block config directly (`country-block.conf`) |

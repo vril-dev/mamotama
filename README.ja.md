@@ -85,8 +85,8 @@ Coraza + CRS WAFプロジェクト
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | `simulate=false` の適用時に承認トークンを必須化するか。 |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | 承認トークンの有効期限（秒）。 |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | propose/apply 操作の監査ログ出力先。 |
-| `WAF_STORAGE_BACKEND` | `file` | ストレージバックエンド選択。`file` は従来のファイル運用、`db` はDBログストア + 設定Blob同期を有効化。 |
-| `WAF_DB_DRIVER` | `sqlite` | `WAF_STORAGE_BACKEND=db` 時のDBドライバ。対応値: `sqlite` / `mysql`（ログストア・設定Blob用途で実装済み）。 |
+| `WAF_STORAGE_BACKEND` | `file` | ストレージバックエンド選択。`file` は従来のファイル運用、`db` はDBログストア + 設定/ルールBlob同期を有効化。 |
+| `WAF_DB_DRIVER` | `sqlite` | `WAF_STORAGE_BACKEND=db` 時のDBドライバ。対応値: `sqlite` / `mysql`（ログストア・設定/ルールBlob用途で実装済み）。 |
 | `WAF_DB_ENABLED` | `false` | 互換用フラグ。`WAF_STORAGE_BACKEND` 未指定時のみ参照され、`true` で `db`、`false` で `file` にマップ。 |
 | `WAF_DB_DSN` | (空) | ネットワークDB向けDSN（例: MySQL）。`WAF_DB_DRIVER=mysql` 時は必須。sqliteは `WAF_DB_PATH` を利用。 |
 | `WAF_DB_PATH` | `logs/coraza/mamotama.db` | `WAF_STORAGE_BACKEND=db` かつ `WAF_DB_DRIVER=sqlite` 時に利用するSQLiteファイルパス。 |
@@ -124,7 +124,7 @@ Coraza + CRS WAFプロジェクト
 | --- | --- |
 | `/status` | WAFの動作状況、設定の確認 |
 | `/logs` | WAFログの取得・表示 |
-| `/rules` | 使用中のルールファイルの一覧表示 |
+| `/rules` | 使用中のベースルールファイル（`rules/mamotama.conf` など）の閲覧・編集 |
 | `/rule-sets` | CRS本体ルール（`rules/crs/rules/*.conf`）の有効/無効切替 |
 | `/bypass` | バイパス設定の閲覧・編集（waf.bypassを直接操作） |
 | `/country-block` | 国別ブロック設定の閲覧・編集（country-block.conf を直接操作） |

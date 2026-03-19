@@ -29,6 +29,9 @@ func main() {
 	} else {
 		log.Printf("[DB][INIT] storage backend=%s", config.StorageBackend)
 	}
+	if err := handler.SyncRuleFilesStorage(); err != nil {
+		log.Printf("[RULES][DB][WARN] sync failed (fallback=file): %v", err)
+	}
 	waf.InitWAF()
 	if err := handler.SyncCRSDisabledStorage(); err != nil {
 		log.Printf("[CRS][DB][WARN] sync failed (fallback=file): %v", err)
