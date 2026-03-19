@@ -1,12 +1,17 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/bypassconf"
 )
+
+const countryBlockConfigBlobKey = "country_block_rules"
 
 type countryBlockPutBody struct {
 	Raw string `json:"raw"`
@@ -25,6 +30,32 @@ func bindCountryBlockPutBody(c *gin.Context) (countryBlockPutBody, bool) {
 func GetCountryBlockRules(c *gin.Context) {
 	path := GetCountryBlockPath()
 	raw, _ := os.ReadFile(path)
+	if store := getLogsStatsStore(); store != nil {
+		dbRaw, dbETag, found, err := store.GetConfigBlob(countryBlockConfigBlobKey)
+		if err != nil {
+			log.Printf("[COUNTRY_BLOCK][DB][WARN] get config blob failed: %v", err)
+		} else if found {
+			codes, parseErr := ParseCountryBlockRaw(string(dbRaw))
+			if parseErr != nil {
+				log.Printf("[COUNTRY_BLOCK][DB][WARN] cached blob parse failed (fallback=file): %v", parseErr)
+			} else {
+				if strings.TrimSpace(dbETag) == "" {
+					dbETag = bypassconf.ComputeETag(dbRaw)
+				}
+				c.JSON(http.StatusOK, gin.H{
+					"etag":    dbETag,
+					"raw":     string(dbRaw),
+					"blocked": codes,
+				})
+				return
+			}
+		} else if len(raw) > 0 {
+			if err := store.UpsertConfigBlob(countryBlockConfigBlobKey, raw, bypassconf.ComputeETag(raw), time.Now().UTC()); err != nil {
+				log.Printf("[COUNTRY_BLOCK][DB][WARN] seed config blob failed: %v", err)
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"etag":    bypassconf.ComputeETag(raw),
 		"raw":     string(raw),
@@ -49,9 +80,29 @@ func ValidateCountryBlockRules(c *gin.Context) {
 
 func PutCountryBlockRules(c *gin.Context) {
 	path := GetCountryBlockPath()
+	store := getLogsStatsStore()
+
 	ifMatch := c.GetHeader("If-Match")
 	curRaw, _ := os.ReadFile(path)
 	curETag := bypassconf.ComputeETag(curRaw)
+	if store != nil {
+		dbRaw, dbETag, found, err := store.GetConfigBlob(countryBlockConfigBlobKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if found {
+			if _, parseErr := ParseCountryBlockRaw(string(dbRaw)); parseErr == nil {
+				curRaw = dbRaw
+				if strings.TrimSpace(dbETag) == "" {
+					dbETag = bypassconf.ComputeETag(dbRaw)
+				}
+				curETag = dbETag
+			} else {
+				log.Printf("[COUNTRY_BLOCK][DB][WARN] cached blob parse failed for conflict check (fallback=file): %v", parseErr)
+			}
+		}
+	}
 	if ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
 		return
@@ -81,5 +132,59 @@ func PutCountryBlockRules(c *gin.Context) {
 	}
 
 	newETag := bypassconf.ComputeETag([]byte(in.Raw))
+	if store != nil {
+		if err := store.UpsertConfigBlob(countryBlockConfigBlobKey, []byte(in.Raw), newETag, time.Now().UTC()); err != nil {
+			_ = bypassconf.AtomicWriteWithBackup(path, curRaw)
+			_ = ReloadCountryBlock()
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":    "country-block db sync failed and rollback applied",
+				"db_error": err.Error(),
+			})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"ok": true, "etag": newETag, "blocked": codes})
+}
+
+func SyncCountryBlockStorage() error {
+	store := getLogsStatsStore()
+	if store == nil {
+		return nil
+	}
+
+	path := GetCountryBlockPath()
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+
+	fileRaw, _ := os.ReadFile(path)
+	dbRaw, dbETag, found, err := store.GetConfigBlob(countryBlockConfigBlobKey)
+	if err != nil {
+		return err
+	}
+
+	if found {
+		if _, err := ParseCountryBlockRaw(string(dbRaw)); err != nil {
+			return err
+		}
+		if err := bypassconf.AtomicWriteWithBackup(path, dbRaw); err != nil {
+			return err
+		}
+		if err := ReloadCountryBlock(); err != nil {
+			return err
+		}
+		if strings.TrimSpace(dbETag) == "" {
+			dbETag = bypassconf.ComputeETag(dbRaw)
+			if err := store.UpsertConfigBlob(countryBlockConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if len(fileRaw) == 0 {
+		return nil
+	}
+	return store.UpsertConfigBlob(countryBlockConfigBlobKey, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC())
 }

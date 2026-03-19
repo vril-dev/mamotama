@@ -33,6 +33,9 @@ func main() {
 	if err := handler.InitCountryBlock(config.CountryBlockFile); err != nil {
 		log.Printf("[COUNTRY_BLOCK][INIT][ERR] %v (path=%s)", err, config.CountryBlockFile)
 	} else {
+		if err := handler.SyncCountryBlockStorage(); err != nil {
+			log.Printf("[COUNTRY_BLOCK][DB][WARN] sync failed (fallback=file): %v", err)
+		}
 		log.Printf("[COUNTRY_BLOCK][INIT] loaded %d countries", len(handler.GetBlockedCountries()))
 	}
 	if err := handler.InitRateLimit(config.RateLimitFile); err != nil {
