@@ -48,6 +48,7 @@ var (
 	DBDSN           string
 	DBPath          string
 	DBRetentionDays int
+	DBSyncInterval  time.Duration
 )
 
 func LoadEnv() {
@@ -147,6 +148,8 @@ func LoadEnv() {
 	if DBRetentionDays > 3650 {
 		DBRetentionDays = 3650
 	}
+	dbSyncSec := parseDBSyncIntervalSec(os.Getenv("WAF_DB_SYNC_INTERVAL_SEC"))
+	DBSyncInterval = time.Duration(dbSyncSec) * time.Second
 
 	AllowInsecureDefaults = isTruthy(os.Getenv("WAF_ALLOW_INSECURE_DEFAULTS"))
 	enforceSecureDefaults()
@@ -259,4 +262,15 @@ func parseDBDriver(v string) string {
 		log.Printf("[CONFIG][WARN] unsupported WAF_DB_DRIVER=%q, fallback=sqlite", s)
 		return "sqlite"
 	}
+}
+
+func parseDBSyncIntervalSec(v string) int {
+	n := parseIntDefault(v, 0)
+	if n < 0 {
+		return 0
+	}
+	if n > 3600 {
+		return 3600
+	}
+	return n
 }

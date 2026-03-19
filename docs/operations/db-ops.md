@@ -11,6 +11,7 @@ Use these env vars to enable DB-backed operation:
 - `WAF_DB_PATH` (required for sqlite)
 - `WAF_DB_DSN` (required for mysql)
 - `WAF_DB_RETENTION_DAYS`
+- `WAF_DB_SYNC_INTERVAL_SEC` (optional periodic reconcile loop)
 
 Compatibility flag:
 
@@ -47,6 +48,7 @@ Current blob keys:
 - `rule_file_sha256:<sha256(path)>` (base rule files listed in `WAF_RULES_FILE`, for example `rules/mamotama.conf`)
 
 At startup in DB mode, runtime still loads from files, and each config is synchronized with DB blobs.
+If `WAF_DB_SYNC_INTERVAL_SEC >= 1`, each node also runs periodic DB→runtime reconciliation and triggers reload only when content changed.
 
 ## Retention / Pruning
 

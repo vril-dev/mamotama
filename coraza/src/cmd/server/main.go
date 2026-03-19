@@ -168,6 +168,10 @@ func main() {
 	if err := handler.SyncCacheRulesStorage(); err != nil {
 		log.Printf("[CACHE][DB][WARN] sync failed (fallback=file): %v", err)
 	}
+	if config.DBEnabled && config.DBSyncInterval > 0 {
+		handler.StartStorageSyncLoop(config.DBSyncInterval)
+		log.Printf("[DB][SYNC] periodic sync loop enabled interval=%s", config.DBSyncInterval)
+	}
 	stopWatch, err := cacheconf.Watch(cacheConfPath, func(rs *cacheconf.Ruleset) {
 		//
 	})

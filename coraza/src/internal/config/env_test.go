@@ -95,3 +95,25 @@ func TestParseDBDriver(t *testing.T) {
 		})
 	}
 }
+
+func TestParseDBSyncIntervalSec(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{in: "", want: 0},
+		{in: "-1", want: 0},
+		{in: "0", want: 0},
+		{in: "10", want: 10},
+		{in: "999999", want: 3600},
+		{in: "abc", want: 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.in, func(t *testing.T) {
+			if got := parseDBSyncIntervalSec(tc.in); got != tc.want {
+				t.Fatalf("parseDBSyncIntervalSec(%q)=%d want=%d", tc.in, got, tc.want)
+			}
+		})
+	}
+}

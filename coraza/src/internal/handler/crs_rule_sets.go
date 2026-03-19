@@ -235,6 +235,7 @@ func SyncCRSDisabledStorage() error {
 			}
 			return waf.ReloadBaseWAF()
 		},
+		SkipWriteIfEqual: true,
 	})
 }
 

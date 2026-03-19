@@ -168,6 +168,7 @@ func SyncRateLimitStorage() error {
 			_, err := ValidateRateLimitRaw(raw)
 			return err
 		},
-		Reload: ReloadRateLimit,
+		Reload:           ReloadRateLimit,
+		SkipWriteIfEqual: true,
 	})
 }

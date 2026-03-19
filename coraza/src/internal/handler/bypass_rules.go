@@ -152,7 +152,8 @@ func SyncBypassStorage() error {
 			_, err := validateRaw(raw)
 			return err
 		},
-		Reload: bypassconf.Reload,
+		Reload:           bypassconf.Reload,
+		SkipWriteIfEqual: true,
 	})
 }
 

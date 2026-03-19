@@ -177,9 +177,8 @@ func SyncCacheRulesStorage() error {
 			_, err := cacheconf.LoadFromBytes([]byte(raw))
 			return err
 		},
-		WriteRaw:           cacheconf.AtomicWriteWithBackup,
-		ComputeETag:        cacheconf.ComputeETag,
-		ForceUpsertOnFound: true,
-		SkipWriteIfEqual:   true,
+		WriteRaw:         cacheconf.AtomicWriteWithBackup,
+		ComputeETag:      cacheconf.ComputeETag,
+		SkipWriteIfEqual: true,
 	})
 }

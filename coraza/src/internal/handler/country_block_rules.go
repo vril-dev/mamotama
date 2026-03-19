@@ -155,6 +155,7 @@ func SyncCountryBlockStorage() error {
 			_, err := ParseCountryBlockRaw(raw)
 			return err
 		},
-		Reload: ReloadCountryBlock,
+		Reload:           ReloadCountryBlock,
+		SkipWriteIfEqual: true,
 	})
 }

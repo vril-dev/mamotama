@@ -189,6 +189,7 @@ func SyncSemanticStorage() error {
 			_, err := ValidateSemanticRaw(raw)
 			return err
 		},
-		Reload: ReloadSemantic,
+		Reload:           ReloadSemantic,
+		SkipWriteIfEqual: true,
 	})
 }

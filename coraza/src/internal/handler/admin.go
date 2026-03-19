@@ -84,6 +84,8 @@ func StatusHandler(c *gin.Context) {
 		"db_dsn_configured":             strings.TrimSpace(config.DBDSN) != "",
 		"db_path":                       config.DBPath,
 		"db_retention_days":             config.DBRetentionDays,
+		"db_sync_interval_sec":          int(config.DBSyncInterval / time.Second),
+		"db_sync_loop_enabled":          config.DBEnabled && config.DBSyncInterval > 0,
 		"db_total_rows":                 dbTotalRows,
 		"db_waf_block_rows":             dbWAFBlockRows,
 		"db_size_bytes":                 dbSizeBytes,
@@ -308,6 +310,7 @@ func SyncRuleFilesStorage() error {
 		return nil
 	}
 
+	changed := false
 	for _, path := range configuredRuleFiles() {
 		if strings.TrimSpace(path) == "" {
 			continue
@@ -331,6 +334,7 @@ func SyncRuleFilesStorage() error {
 				if err := bypassconf.AtomicWriteWithBackup(path, dbRaw); err != nil {
 					return err
 				}
+				changed = true
 			}
 			if strings.TrimSpace(dbETag) == "" {
 				dbETag = bypassconf.ComputeETag(dbRaw)
@@ -346,6 +350,12 @@ func SyncRuleFilesStorage() error {
 		}
 		if err := store.UpsertConfigBlob(key, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC()); err != nil {
 			return err
+		}
+	}
+
+	if changed && waf.GetBaseWAF() != nil {
+		if err := waf.ReloadBaseWAF(); err != nil {
+			return fmt.Errorf("reload base waf after rule sync: %w", err)
 		}
 	}
 	return nil

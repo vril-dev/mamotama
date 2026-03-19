@@ -170,6 +170,7 @@ func SyncBotDefenseStorage() error {
 			_, err := ValidateBotDefenseRaw(raw)
 			return err
 		},
-		Reload: ReloadBotDefense,
+		Reload:           ReloadBotDefense,
+		SkipWriteIfEqual: true,
 	})
 }

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"os"
 	"strings"
 	"time"
 
@@ -40,7 +39,10 @@ func syncConfigBlobFilePath(opts configBlobSyncOptions) error {
 		computeETag = bypassconf.ComputeETag
 	}
 
-	fileRaw, _ := os.ReadFile(path)
+	fileRaw, hadFile, err := readFileMaybe(path)
+	if err != nil {
+		return err
+	}
 	dbRaw, dbETag, found, err := store.GetConfigBlob(opts.ConfigKey)
 	if err != nil {
 		return err
@@ -52,12 +54,13 @@ func syncConfigBlobFilePath(opts configBlobSyncOptions) error {
 				return err
 			}
 		}
-		if !(opts.SkipWriteIfEqual && bytes.Equal(fileRaw, dbRaw)) {
+		changed := !hadFile || !bytes.Equal(fileRaw, dbRaw)
+		if !(opts.SkipWriteIfEqual && !changed) {
 			if err := writeRaw(path, dbRaw); err != nil {
 				return err
 			}
 		}
-		if opts.Reload != nil {
+		if changed && opts.Reload != nil {
 			if err := opts.Reload(); err != nil {
 				return err
 			}
