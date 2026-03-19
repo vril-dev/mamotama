@@ -223,6 +223,78 @@ func TestLogsReadUsesSQLiteStoreForWAF(t *testing.T) {
 	}
 }
 
+func TestLogsReadUsesSQLiteStoreCountryFilterPagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":      now.Add(-3 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-jp-1",
+			"path":    "/a",
+			"rule_id": 942100,
+			"country": "JP",
+			"status":  403,
+		},
+		{
+			"ts":      now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-us-1",
+			"path":    "/b",
+			"rule_id": 920350,
+			"country": "US",
+			"status":  403,
+		},
+		{
+			"ts":      now.Add(-1 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-jp-2",
+			"path":    "/c",
+			"rule_id": 949110,
+			"country": "JP",
+			"status":  403,
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStore(false, "", 0)
+	})
+
+	first := callLogsRead(t, "/mamotama-api/logs/read?src=waf&tail=1&country=JP")
+	if len(first.Lines) != 1 {
+		t.Fatalf("first lines=%d want=1", len(first.Lines))
+	}
+	if got := anyToString(first.Lines[0]["req_id"]); got != "req-jp-2" {
+		t.Fatalf("first[0].req_id=%q want=req-jp-2", got)
+	}
+	if !first.HasPrev {
+		t.Fatal("first HasPrev=false want true")
+	}
+	if first.PageStart == nil {
+		t.Fatal("first page_start is nil")
+	}
+
+	second := callLogsRead(t, "/mamotama-api/logs/read?src=waf&tail=1&dir=prev&country=JP&cursor="+itoa64(*first.PageStart))
+	if len(second.Lines) != 1 {
+		t.Fatalf("second lines=%d want=1", len(second.Lines))
+	}
+	if got := anyToString(second.Lines[0]["req_id"]); got != "req-jp-1" {
+		t.Fatalf("second[0].req_id=%q want=req-jp-1", got)
+	}
+}
+
 func TestLogsDownloadUsesSQLiteStoreForWAF(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

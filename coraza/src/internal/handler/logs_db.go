@@ -450,7 +450,7 @@ func (s *wafEventStore) StatusSnapshot(logPath string) (wafEventStoreStatus, err
 	}, nil
 }
 
-func (s *wafEventStore) ReadWAFLogs(logPath string, tail int, cursor *int64, dir string) ([]logLine, *int64, bool, bool, error) {
+func (s *wafEventStore) ReadWAFLogs(logPath string, tail int, cursor *int64, dir string, countryFilter string) ([]logLine, *int64, bool, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -458,7 +458,14 @@ func (s *wafEventStore) ReadWAFLogs(logPath string, tail int, cursor *int64, dir
 		return nil, nil, false, false, err
 	}
 
-	totalLines, err := s.queryCount(`SELECT COUNT(*) FROM waf_events`)
+	countQuery := `SELECT COUNT(*) FROM waf_events`
+	countArgs := make([]any, 0, 1)
+	if countryFilter != "" {
+		countQuery += ` WHERE country = ?`
+		countArgs = append(countArgs, countryFilter)
+	}
+
+	totalLines, err := s.queryCount(countQuery, countArgs...)
 	if err != nil {
 		return nil, nil, false, false, err
 	}
@@ -495,11 +502,16 @@ func (s *wafEventStore) ReadWAFLogs(logPath string, tail int, cursor *int64, dir
 		return []logLine{}, &nextCur, start > 0, end < totalLines, nil
 	}
 
-	rows, err := s.db.Query(
-		`SELECT raw_json FROM waf_events ORDER BY id ASC LIMIT ? OFFSET ?`,
-		end-start,
-		start,
-	)
+	selectQuery := `SELECT raw_json FROM waf_events`
+	selectArgs := make([]any, 0, 3)
+	if countryFilter != "" {
+		selectQuery += ` WHERE country = ?`
+		selectArgs = append(selectArgs, countryFilter)
+	}
+	selectQuery += ` ORDER BY id ASC LIMIT ? OFFSET ?`
+	selectArgs = append(selectArgs, end-start, start)
+
+	rows, err := s.db.Query(selectQuery, selectArgs...)
 	if err != nil {
 		return nil, nil, false, false, err
 	}
