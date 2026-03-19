@@ -620,6 +620,15 @@ SQLite operation notes:
 
 ---
 
+## What Is mamotama?
+
+**mamotama** is inspired by the Japanese phrase **「護りたまえ」 (mamoritamae)**,
+which means *"please protect"* or *"grant protection"*.
+
+The name reflects the project's purpose: protecting web applications and infrastructure.
+
+---
+
 ## Disclaimer
 
 This project is primarily intended for security learning and validation.
