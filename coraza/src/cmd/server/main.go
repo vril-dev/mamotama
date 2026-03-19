@@ -38,6 +38,9 @@ func main() {
 	if err := handler.InitRateLimit(config.RateLimitFile); err != nil {
 		log.Printf("[RATE_LIMIT][INIT][ERR] %v (path=%s)", err, config.RateLimitFile)
 	} else {
+		if err := handler.SyncRateLimitStorage(); err != nil {
+			log.Printf("[RATE_LIMIT][DB][WARN] sync failed (fallback=file): %v", err)
+		}
 		log.Printf("[RATE_LIMIT][INIT] loaded")
 	}
 	if err := handler.InitBotDefense(config.BotDefenseFile); err != nil {

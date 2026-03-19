@@ -1,12 +1,17 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"mamotama/internal/bypassconf"
 )
+
+const rateLimitConfigBlobKey = "rate_limit_rules"
 
 type rateLimitPutBody struct {
 	Raw string `json:"raw"`
@@ -25,6 +30,33 @@ func bindRateLimitPutBody(c *gin.Context) (rateLimitPutBody, bool) {
 func GetRateLimitRules(c *gin.Context) {
 	path := GetRateLimitPath()
 	raw, _ := os.ReadFile(path)
+	if store := getLogsStatsStore(); store != nil {
+		dbRaw, dbETag, found, err := store.GetConfigBlob(rateLimitConfigBlobKey)
+		if err != nil {
+			log.Printf("[RATE_LIMIT][DB][WARN] get config blob failed: %v", err)
+		} else if found {
+			rt, parseErr := ValidateRateLimitRaw(string(dbRaw))
+			if parseErr != nil {
+				log.Printf("[RATE_LIMIT][DB][WARN] cached blob parse failed (fallback=file): %v", parseErr)
+			} else {
+				if strings.TrimSpace(dbETag) == "" {
+					dbETag = bypassconf.ComputeETag(dbRaw)
+				}
+				c.JSON(http.StatusOK, gin.H{
+					"etag":    dbETag,
+					"raw":     string(dbRaw),
+					"enabled": rt.Raw.Enabled,
+					"rules":   len(rt.Raw.Rules),
+				})
+				return
+			}
+		} else if len(raw) > 0 {
+			if err := store.UpsertConfigBlob(rateLimitConfigBlobKey, raw, bypassconf.ComputeETag(raw), time.Now().UTC()); err != nil {
+				log.Printf("[RATE_LIMIT][DB][WARN] seed config blob failed: %v", err)
+			}
+		}
+	}
+
 	cfg := GetRateLimitConfig()
 	c.JSON(http.StatusOK, gin.H{
 		"etag":    bypassconf.ComputeETag(raw),
@@ -56,9 +88,29 @@ func ValidateRateLimitRules(c *gin.Context) {
 
 func PutRateLimitRules(c *gin.Context) {
 	path := GetRateLimitPath()
+	store := getLogsStatsStore()
+
 	ifMatch := c.GetHeader("If-Match")
 	curRaw, _ := os.ReadFile(path)
 	curETag := bypassconf.ComputeETag(curRaw)
+	if store != nil {
+		dbRaw, dbETag, found, err := store.GetConfigBlob(rateLimitConfigBlobKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if found {
+			if _, parseErr := ValidateRateLimitRaw(string(dbRaw)); parseErr == nil {
+				curRaw = dbRaw
+				if strings.TrimSpace(dbETag) == "" {
+					dbETag = bypassconf.ComputeETag(dbRaw)
+				}
+				curETag = dbETag
+			} else {
+				log.Printf("[RATE_LIMIT][DB][WARN] cached blob parse failed for conflict check (fallback=file): %v", parseErr)
+			}
+		}
+	}
 	if ifMatch != "" && ifMatch != curETag {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "currentETag": curETag})
 		return
@@ -88,10 +140,64 @@ func PutRateLimitRules(c *gin.Context) {
 	}
 
 	newETag := bypassconf.ComputeETag([]byte(in.Raw))
+	if store != nil {
+		if err := store.UpsertConfigBlob(rateLimitConfigBlobKey, []byte(in.Raw), newETag, time.Now().UTC()); err != nil {
+			_ = bypassconf.AtomicWriteWithBackup(path, curRaw)
+			_ = ReloadRateLimit()
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":    "rate-limit db sync failed and rollback applied",
+				"db_error": err.Error(),
+			})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
 		"etag":    newETag,
 		"enabled": rt.Raw.Enabled,
 		"rules":   len(rt.Raw.Rules),
 	})
+}
+
+func SyncRateLimitStorage() error {
+	store := getLogsStatsStore()
+	if store == nil {
+		return nil
+	}
+
+	path := GetRateLimitPath()
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+
+	fileRaw, _ := os.ReadFile(path)
+	dbRaw, dbETag, found, err := store.GetConfigBlob(rateLimitConfigBlobKey)
+	if err != nil {
+		return err
+	}
+
+	if found {
+		if _, err := ValidateRateLimitRaw(string(dbRaw)); err != nil {
+			return err
+		}
+		if err := bypassconf.AtomicWriteWithBackup(path, dbRaw); err != nil {
+			return err
+		}
+		if err := ReloadRateLimit(); err != nil {
+			return err
+		}
+		if strings.TrimSpace(dbETag) == "" {
+			dbETag = bypassconf.ComputeETag(dbRaw)
+			if err := store.UpsertConfigBlob(rateLimitConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if len(fileRaw) == 0 {
+		return nil
+	}
+	return store.UpsertConfigBlob(rateLimitConfigBlobKey, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC())
 }
