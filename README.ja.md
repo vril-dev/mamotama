@@ -589,11 +589,13 @@ GitHub Actions の `ci` ワークフローで以下を検証します。
 
 - `go test ./...`（`coraza/src`）
 - `docker compose config` の妥当性確認
+- MySQL ログストア統合テスト（`docker compose --profile mysql up -d mysql` + `go test ./internal/handler -run TestLogsStatsMySQLStoreAggregatesAndIngestsIncrementally`）
 - `./scripts/run_gotestwaf.sh`（`waf-test` マトリクス、`MIN_BLOCKED_RATIO=70`、`WAF_DB_ENABLED=false/true`）
 
 運用では、以下をブランチ保護の Required Checks に設定してください。
 
 - `ci / go-test`
+- `ci / mysql-logstore-test`
 - `ci / compose-validate`
 - `ci / waf-test (file)`
 - `ci / waf-test (sqlite)`

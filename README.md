@@ -587,11 +587,13 @@ GitHub Actions workflow `ci` validates:
 
 - `go test ./...` (`coraza/src`)
 - `docker compose config` sanity check
+- MySQL log-store integration test (`go test ./internal/handler -run TestLogsStatsMySQLStoreAggregatesAndIngestsIncrementally`, with `docker compose --profile mysql up -d mysql`)
 - `./scripts/run_gotestwaf.sh` (`waf-test` matrix, `MIN_BLOCKED_RATIO=70`, `WAF_DB_ENABLED=false/true`)
 
 In production workflows, set these as required branch protection checks:
 
 - `ci / go-test`
+- `ci / mysql-logstore-test`
 - `ci / compose-validate`
 - `ci / waf-test (file)`
 - `ci / waf-test (sqlite)`
