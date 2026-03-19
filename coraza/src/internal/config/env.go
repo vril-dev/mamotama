@@ -42,9 +42,13 @@ var (
 	FPTunerApprovalTTL      time.Duration
 	FPTunerAuditFile        string
 
+	StorageBackend  string
 	DBEnabled       bool
+	DBDriver        string
+	DBDSN           string
 	DBPath          string
 	DBRetentionDays int
+	DBSyncInterval  time.Duration
 )
 
 func LoadEnv() {
@@ -128,7 +132,11 @@ func LoadEnv() {
 	if FPTunerAuditFile == "" {
 		FPTunerAuditFile = "logs/coraza/fp-tuner-audit.ndjson"
 	}
-	DBEnabled = isTruthy(os.Getenv("WAF_DB_ENABLED"))
+	legacyDBEnabled := isTruthy(os.Getenv("WAF_DB_ENABLED"))
+	StorageBackend = parseStorageBackend(os.Getenv("WAF_STORAGE_BACKEND"), legacyDBEnabled)
+	DBEnabled = StorageBackend == "db"
+	DBDriver = parseDBDriver(os.Getenv("WAF_DB_DRIVER"))
+	DBDSN = strings.TrimSpace(os.Getenv("WAF_DB_DSN"))
 	DBPath = strings.TrimSpace(os.Getenv("WAF_DB_PATH"))
 	if DBPath == "" {
 		DBPath = "logs/coraza/mamotama.db"
@@ -140,6 +148,8 @@ func LoadEnv() {
 	if DBRetentionDays > 3650 {
 		DBRetentionDays = 3650
 	}
+	dbSyncSec := parseDBSyncIntervalSec(os.Getenv("WAF_DB_SYNC_INTERVAL_SEC"))
+	DBSyncInterval = time.Duration(dbSyncSec) * time.Second
 
 	AllowInsecureDefaults = isTruthy(os.Getenv("WAF_ALLOW_INSECURE_DEFAULTS"))
 	enforceSecureDefaults()
@@ -221,6 +231,46 @@ func parseIntDefault(v string, d int) int {
 	n, err := strconv.Atoi(s)
 	if err != nil {
 		return d
+	}
+	return n
+}
+
+func parseStorageBackend(v string, legacyDBEnabled bool) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	switch s {
+	case "file", "db":
+		return s
+	case "":
+		if legacyDBEnabled {
+			return "db"
+		}
+		return "file"
+	default:
+		log.Printf("[CONFIG][WARN] unsupported WAF_STORAGE_BACKEND=%q, fallback=file", s)
+		return "file"
+	}
+}
+
+func parseDBDriver(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	switch s {
+	case "":
+		return "sqlite"
+	case "sqlite", "mysql":
+		return s
+	default:
+		log.Printf("[CONFIG][WARN] unsupported WAF_DB_DRIVER=%q, fallback=sqlite", s)
+		return "sqlite"
+	}
+}
+
+func parseDBSyncIntervalSec(v string) int {
+	n := parseIntDefault(v, 0)
+	if n < 0 {
+		return 0
+	}
+	if n > 3600 {
+		return 3600
 	}
 	return n
 }

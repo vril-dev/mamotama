@@ -50,3 +50,70 @@ func TestParseCSV(t *testing.T) {
 		t.Fatalf("parseCSV() = %#v", got)
 	}
 }
+
+func TestParseStorageBackend(t *testing.T) {
+	cases := []struct {
+		name            string
+		in              string
+		legacyDBEnabled bool
+		want            string
+	}{
+		{name: "explicit-file", in: "file", legacyDBEnabled: true, want: "file"},
+		{name: "explicit-db", in: "db", legacyDBEnabled: false, want: "db"},
+		{name: "legacy-fallback-db", in: "", legacyDBEnabled: true, want: "db"},
+		{name: "legacy-fallback-file", in: "", legacyDBEnabled: false, want: "file"},
+		{name: "invalid-fallback-file", in: "oracle", legacyDBEnabled: true, want: "file"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseStorageBackend(tc.in, tc.legacyDBEnabled)
+			if got != tc.want {
+				t.Fatalf("parseStorageBackend(%q, %v)=%q want=%q", tc.in, tc.legacyDBEnabled, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseDBDriver(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{in: "", want: "sqlite"},
+		{in: "sqlite", want: "sqlite"},
+		{in: "mysql", want: "mysql"},
+		{in: "oracle", want: "sqlite"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.in+"->"+tc.want, func(t *testing.T) {
+			got := parseDBDriver(tc.in)
+			if got != tc.want {
+				t.Fatalf("parseDBDriver(%q)=%q want=%q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseDBSyncIntervalSec(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{in: "", want: 0},
+		{in: "-1", want: 0},
+		{in: "0", want: 0},
+		{in: "10", want: 10},
+		{in: "999999", want: 3600},
+		{in: "abc", want: 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.in, func(t *testing.T) {
+			if got := parseDBSyncIntervalSec(tc.in); got != tc.want {
+				t.Fatalf("parseDBSyncIntervalSec(%q)=%d want=%d", tc.in, got, tc.want)
+			}
+		})
+	}
+}

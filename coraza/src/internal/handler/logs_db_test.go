@@ -223,6 +223,78 @@ func TestLogsReadUsesSQLiteStoreForWAF(t *testing.T) {
 	}
 }
 
+func TestLogsReadUsesSQLiteStoreCountryFilterPagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":      now.Add(-3 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-jp-1",
+			"path":    "/a",
+			"rule_id": 942100,
+			"country": "JP",
+			"status":  403,
+		},
+		{
+			"ts":      now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-us-1",
+			"path":    "/b",
+			"rule_id": 920350,
+			"country": "US",
+			"status":  403,
+		},
+		{
+			"ts":      now.Add(-1 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"req_id":  "req-jp-2",
+			"path":    "/c",
+			"rule_id": 949110,
+			"country": "JP",
+			"status":  403,
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStore(true, dbPath, 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStore(false, "", 0)
+	})
+
+	first := callLogsRead(t, "/mamotama-api/logs/read?src=waf&tail=1&country=JP")
+	if len(first.Lines) != 1 {
+		t.Fatalf("first lines=%d want=1", len(first.Lines))
+	}
+	if got := anyToString(first.Lines[0]["req_id"]); got != "req-jp-2" {
+		t.Fatalf("first[0].req_id=%q want=req-jp-2", got)
+	}
+	if !first.HasPrev {
+		t.Fatal("first HasPrev=false want true")
+	}
+	if first.PageStart == nil {
+		t.Fatal("first page_start is nil")
+	}
+
+	second := callLogsRead(t, "/mamotama-api/logs/read?src=waf&tail=1&dir=prev&country=JP&cursor="+itoa64(*first.PageStart))
+	if len(second.Lines) != 1 {
+		t.Fatalf("second lines=%d want=1", len(second.Lines))
+	}
+	if got := anyToString(second.Lines[0]["req_id"]); got != "req-jp-1" {
+		t.Fatalf("second[0].req_id=%q want=req-jp-1", got)
+	}
+}
+
 func TestLogsDownloadUsesSQLiteStoreForWAF(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -441,6 +513,226 @@ func TestWAFEventStoreStatusSnapshot(t *testing.T) {
 	}
 	if s2.LastSyncScannedLines != 0 {
 		t.Fatalf("second last_sync_scanned_lines=%d want=0", s2.LastSyncScannedLines)
+	}
+}
+
+func TestInitLogsStatsStoreWithBackend_FileDisablesStore(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "mamotama.db")
+
+	if err := InitLogsStatsStoreWithBackend("db", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("init db backend: %v", err)
+	}
+	if getLogsStatsStore() == nil {
+		t.Fatal("expected sqlite store")
+	}
+
+	if err := InitLogsStatsStoreWithBackend("file", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("switch to file backend: %v", err)
+	}
+	if getLogsStatsStore() != nil {
+		t.Fatal("store should be nil when backend=file")
+	}
+}
+
+func TestInitLogsStatsStoreWithBackend_MySQLRequiresDSN(t *testing.T) {
+	err := InitLogsStatsStoreWithBackend("db", "mysql", "", "", 30)
+	if err == nil {
+		t.Fatal("expected error for missing mysql dsn")
+	}
+	if !strings.Contains(err.Error(), "requires WAF_DB_DSN") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInitLogsStatsStoreWithBackend_InvalidBackend(t *testing.T) {
+	err := InitLogsStatsStoreWithBackend("oracle", "sqlite", "ignored.db", "", 30)
+	if err == nil {
+		t.Fatal("expected error for invalid storage backend")
+	}
+	if !strings.Contains(err.Error(), "unsupported storage backend") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWAFEventStoreSQLDialectStatements(t *testing.T) {
+	sqliteStore := &wafEventStore{dbDriver: logStatsDBDriverSQLite}
+	if !strings.Contains(sqliteStore.insertWAFEventStmt(), "INSERT OR IGNORE") {
+		t.Fatalf("sqlite insert stmt mismatch: %s", sqliteStore.insertWAFEventStmt())
+	}
+	if !strings.Contains(sqliteStore.upsertIngestStateStmt(), "ON CONFLICT") {
+		t.Fatalf("sqlite upsert stmt mismatch: %s", sqliteStore.upsertIngestStateStmt())
+	}
+	if !strings.Contains(sqliteStore.upsertConfigBlobStmt(), "ON CONFLICT") {
+		t.Fatalf("sqlite config blob upsert stmt mismatch: %s", sqliteStore.upsertConfigBlobStmt())
+	}
+
+	mysqlStore := &wafEventStore{dbDriver: logStatsDBDriverMySQL}
+	if !strings.Contains(mysqlStore.insertWAFEventStmt(), "INSERT IGNORE") {
+		t.Fatalf("mysql insert stmt mismatch: %s", mysqlStore.insertWAFEventStmt())
+	}
+	if !strings.Contains(mysqlStore.upsertIngestStateStmt(), "ON DUPLICATE KEY UPDATE") {
+		t.Fatalf("mysql upsert stmt mismatch: %s", mysqlStore.upsertIngestStateStmt())
+	}
+	if !strings.Contains(mysqlStore.upsertConfigBlobStmt(), "ON DUPLICATE KEY UPDATE") {
+		t.Fatalf("mysql config blob upsert stmt mismatch: %s", mysqlStore.upsertConfigBlobStmt())
+	}
+}
+
+func TestConfigBlobSQLiteRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "mamotama.db")
+
+	if err := InitLogsStatsStoreWithBackend("db", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected sqlite store")
+	}
+
+	raw := []byte("ALLOW prefix=/assets methods=GET,HEAD ttl=300\n")
+	if err := store.UpsertConfigBlob(cacheConfigBlobKey, raw, "", time.Unix(1700000000, 0).UTC()); err != nil {
+		t.Fatalf("upsert config blob: %v", err)
+	}
+
+	gotRaw, gotETag, found, err := store.GetConfigBlob(cacheConfigBlobKey)
+	if err != nil {
+		t.Fatalf("get config blob: %v", err)
+	}
+	if !found {
+		t.Fatal("expected config blob to exist")
+	}
+	if strings.TrimSpace(gotETag) == "" {
+		t.Fatal("etag should not be empty")
+	}
+	if string(gotRaw) != string(raw) {
+		t.Fatalf("raw mismatch: got=%q want=%q", string(gotRaw), string(raw))
+	}
+}
+
+func TestConfigBlobMySQLRoundTrip(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("WAF_TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("WAF_TEST_MYSQL_DSN is not set")
+	}
+
+	if err := InitLogsStatsStoreWithBackend("db", "mysql", "", dsn, 30); err != nil {
+		t.Fatalf("init mysql store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected mysql store")
+	}
+	if _, err := store.db.Exec(`DELETE FROM config_blobs WHERE config_key = ?`, cacheConfigBlobKey); err != nil {
+		t.Fatalf("cleanup config_blob: %v", err)
+	}
+
+	raw := []byte("DENY prefix=/mamotama-api/ methods=GET,HEAD\n")
+	if err := store.UpsertConfigBlob(cacheConfigBlobKey, raw, "", time.Now().UTC()); err != nil {
+		t.Fatalf("upsert config blob: %v", err)
+	}
+
+	gotRaw, gotETag, found, err := store.GetConfigBlob(cacheConfigBlobKey)
+	if err != nil {
+		t.Fatalf("get config blob: %v", err)
+	}
+	if !found {
+		t.Fatal("expected config blob to exist")
+	}
+	if strings.TrimSpace(gotETag) == "" {
+		t.Fatal("etag should not be empty")
+	}
+	if string(gotRaw) != string(raw) {
+		t.Fatalf("raw mismatch: got=%q want=%q", string(gotRaw), string(raw))
+	}
+}
+
+func TestLogsStatsMySQLStoreAggregatesAndIngestsIncrementally(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("WAF_TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("WAF_TEST_MYSQL_DSN is not set")
+	}
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":      now.Add(-8 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"rule_id": 942100,
+			"path":    "/mysql-login",
+			"country": "JP",
+			"status":  403,
+			"req_id":  "mysql-req-1",
+		},
+		{
+			"ts":      now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"rule_id": 920350,
+			"path":    "/mysql-admin",
+			"country": "US",
+			"status":  403,
+			"req_id":  "mysql-req-2",
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	if err := InitLogsStatsStoreWithBackend("db", "mysql", "", dsn, 30); err != nil {
+		t.Fatalf("init mysql store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected mysql store")
+	}
+	if _, err := store.db.Exec(`TRUNCATE TABLE waf_events`); err != nil {
+		t.Fatalf("truncate waf_events: %v", err)
+	}
+	if _, err := store.db.Exec(`DELETE FROM ingest_state WHERE source = ?`, logStatsStoreSourceWAF); err != nil {
+		t.Fatalf("reset ingest_state: %v", err)
+	}
+
+	first := callLogsStats(t, "/mamotama-api/logs/stats?hours=6")
+	if first.WAFBlock.TotalInScan != 2 {
+		t.Fatalf("first total_in_scan=%d want=2", first.WAFBlock.TotalInScan)
+	}
+	if first.ScannedLines != len(entries) {
+		t.Fatalf("first scanned_lines=%d want=%d", first.ScannedLines, len(entries))
+	}
+
+	appendNDJSONLine(t, logPath, map[string]any{
+		"ts":      now.Add(-1 * time.Minute).Format(time.RFC3339Nano),
+		"event":   "waf_block",
+		"rule_id": 949110,
+		"path":    "/mysql-api",
+		"country": "JP",
+		"status":  403,
+		"req_id":  "mysql-req-3",
+	})
+
+	second := callLogsStats(t, "/mamotama-api/logs/stats?hours=6")
+	if second.WAFBlock.TotalInScan != 3 {
+		t.Fatalf("second total_in_scan=%d want=3", second.WAFBlock.TotalInScan)
+	}
+	if second.ScannedLines != 1 {
+		t.Fatalf("second scanned_lines=%d want=1", second.ScannedLines)
 	}
 }
 

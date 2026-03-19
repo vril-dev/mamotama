@@ -120,7 +120,7 @@ func LogsRead(c *gin.Context) {
 	)
 	if src == "waf" {
 		if store := getLogsStatsStore(); store != nil {
-			lines, nextCur, hasPrev, hasNext, err = store.ReadWAFLogs(path, tail, cursor, dir)
+			lines, nextCur, hasPrev, hasNext, err = store.ReadWAFLogs(path, tail, cursor, dir, countryFilter)
 		} else {
 			lines, nextCur, hasPrev, hasNext, err = readByLine(path, tail, cursor, dir)
 		}

@@ -19,6 +19,46 @@ jobs:
       - name: Run unit tests
         run: go test ./...
 
+  mysql-logstore-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.7"
+          cache-dependency-path: coraza/src/go.sum
+
+      - name: Prepare env file
+        run: cp .env.example .env
+
+      - name: Start MySQL container
+        run: docker compose --profile mysql up -d mysql
+
+      - name: Wait for MySQL healthy
+        run: |
+          for i in $(seq 1 60); do
+            if docker compose --profile mysql exec -T mysql mysqladmin ping -h 127.0.0.1 -uroot -p"${MYSQL_ROOT_PASSWORD:-mamotama-root}" --silent >/dev/null 2>&1; then
+              echo "mysql is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "mysql did not become healthy in time" >&2
+          docker compose --profile mysql ps mysql || true
+          docker compose --profile mysql logs mysql || true
+          exit 1
+
+      - name: Run MySQL log-store integration test
+        working-directory: coraza/src
+        env:
+          WAF_TEST_MYSQL_DSN: mamotama:mamotama@tcp(127.0.0.1:13306)/mamotama?charset=utf8mb4&parseTime=true
+        run: go test ./internal/handler -run TestLogsStatsMySQLStoreAggregatesAndIngestsIncrementally -count=1
+
+      - name: Tear down MySQL container
+        if: always()
+        run: docker compose --profile mysql down -v
+
   ui-test:
     runs-on: ubuntu-latest
     defaults:

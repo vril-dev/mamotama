@@ -16,30 +16,59 @@ import (
 
 func main() {
 	config.LoadEnv()
-	if err := handler.InitLogsStatsStore(config.DBEnabled, config.DBPath, config.DBRetentionDays); err != nil {
-		log.Printf("[DB][INIT][WARN] failed to initialize sqlite stats store (fallback=file): %v", err)
+	if err := handler.InitLogsStatsStoreWithBackend(
+		config.StorageBackend,
+		config.DBDriver,
+		config.DBPath,
+		config.DBDSN,
+		config.DBRetentionDays,
+	); err != nil {
+		log.Printf("[DB][INIT][WARN] failed to initialize db store (fallback=file): %v", err)
 	} else if config.DBEnabled {
-		log.Printf("[DB][INIT] sqlite stats store enabled (path=%s retention_days=%d)", config.DBPath, config.DBRetentionDays)
+		log.Printf("[DB][INIT] db store enabled (backend=%s driver=%s path=%s retention_days=%d)", config.StorageBackend, config.DBDriver, config.DBPath, config.DBRetentionDays)
+	} else {
+		log.Printf("[DB][INIT] storage backend=%s", config.StorageBackend)
+	}
+	if err := handler.SyncRuleFilesStorage(); err != nil {
+		log.Printf("[RULES][DB][WARN] sync failed (fallback=file): %v", err)
 	}
 	waf.InitWAF()
+	if err := handler.SyncCRSDisabledStorage(); err != nil {
+		log.Printf("[CRS][DB][WARN] sync failed (fallback=file): %v", err)
+	}
+	if err := handler.SyncBypassStorage(); err != nil {
+		log.Printf("[BYPASS][DB][WARN] sync failed (fallback=file): %v", err)
+	}
 	if err := handler.InitCountryBlock(config.CountryBlockFile); err != nil {
 		log.Printf("[COUNTRY_BLOCK][INIT][ERR] %v (path=%s)", err, config.CountryBlockFile)
 	} else {
+		if err := handler.SyncCountryBlockStorage(); err != nil {
+			log.Printf("[COUNTRY_BLOCK][DB][WARN] sync failed (fallback=file): %v", err)
+		}
 		log.Printf("[COUNTRY_BLOCK][INIT] loaded %d countries", len(handler.GetBlockedCountries()))
 	}
 	if err := handler.InitRateLimit(config.RateLimitFile); err != nil {
 		log.Printf("[RATE_LIMIT][INIT][ERR] %v (path=%s)", err, config.RateLimitFile)
 	} else {
+		if err := handler.SyncRateLimitStorage(); err != nil {
+			log.Printf("[RATE_LIMIT][DB][WARN] sync failed (fallback=file): %v", err)
+		}
 		log.Printf("[RATE_LIMIT][INIT] loaded")
 	}
 	if err := handler.InitBotDefense(config.BotDefenseFile); err != nil {
 		log.Printf("[BOT_DEFENSE][INIT][ERR] %v (path=%s)", err, config.BotDefenseFile)
 	} else {
+		if err := handler.SyncBotDefenseStorage(); err != nil {
+			log.Printf("[BOT_DEFENSE][DB][WARN] sync failed (fallback=file): %v", err)
+		}
 		log.Printf("[BOT_DEFENSE][INIT] loaded")
 	}
 	if err := handler.InitSemantic(config.SemanticFile); err != nil {
 		log.Printf("[SEMANTIC][INIT][ERR] %v (path=%s)", err, config.SemanticFile)
 	} else {
+		if err := handler.SyncSemanticStorage(); err != nil {
+			log.Printf("[SEMANTIC][DB][WARN] sync failed (fallback=file): %v", err)
+		}
 		log.Printf("[SEMANTIC][INIT] loaded")
 	}
 
@@ -136,6 +165,13 @@ func main() {
 	})
 
 	const cacheConfPath = "conf/cache.conf"
+	if err := handler.SyncCacheRulesStorage(); err != nil {
+		log.Printf("[CACHE][DB][WARN] sync failed (fallback=file): %v", err)
+	}
+	if config.DBEnabled && config.DBSyncInterval > 0 {
+		handler.StartStorageSyncLoop(config.DBSyncInterval)
+		log.Printf("[DB][SYNC] periodic sync loop enabled interval=%s", config.DBSyncInterval)
+	}
 	stopWatch, err := cacheconf.Watch(cacheConfPath, func(rs *cacheconf.Ruleset) {
 		//
 	})

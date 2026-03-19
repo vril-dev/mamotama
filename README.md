@@ -39,6 +39,17 @@ Edit `data/rules/crs/crs-setup.conf` as needed (for example, paranoia level and 
 
 You can control behavior via `.env`.
 
+### Docker / Local MySQL (Optional)
+
+| Variable | Example | Description |
+| --- | --- | --- |
+| `MYSQL_PORT` | `13306` | Host port mapped to MySQL container `3306` (used when profile `mysql` is enabled). |
+| `MYSQL_DATABASE` | `mamotama` | Initial database name created in local MySQL container. |
+| `MYSQL_USER` | `mamotama` | Application user created for local MySQL container. |
+| `MYSQL_PASSWORD` | `mamotama` | Password for `MYSQL_USER`. |
+| `MYSQL_ROOT_PASSWORD` | `mamotama-root` | Root password for local MySQL container. |
+| `MYSQL_TZ` | `UTC` | Container timezone. |
+
 ### Nginx
 
 | Variable | Example | Description |
@@ -73,9 +84,13 @@ You can control behavior via `.env`.
 | `WAF_FP_TUNER_REQUIRE_APPROVAL` | `true` | Require approval token for non-simulated apply (`/fp-tuner/apply` with `simulate=false`). |
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | Approval token TTL in seconds. |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | Audit log destination for propose/apply actions. |
-| `WAF_DB_ENABLED` | `false` | Enable SQLite-backed log store. When `true`, `waf` source on `/logs/stats`, `/logs/read`, `/logs/download`, and FP tuner latest-event lookup use incremental DB-backed data. |
-| `WAF_DB_PATH` | `logs/coraza/mamotama.db` | SQLite file path used when `WAF_DB_ENABLED=true`. |
-| `WAF_DB_RETENTION_DAYS` | `30` | Retention window for `waf_events` in SQLite. Entries older than this are pruned on sync. `0` disables pruning. |
+| `WAF_STORAGE_BACKEND` | `file` | Storage backend selector. `file` keeps file-based operation; `db` enables DB-backed log store + config/rule blob sync. |
+| `WAF_DB_DRIVER` | `sqlite` | DB driver when `WAF_STORAGE_BACKEND=db`. Supported: `sqlite`, `mysql` (implemented for log store and config/rule blobs). |
+| `WAF_DB_ENABLED` | `false` | Legacy compatibility flag. If `WAF_STORAGE_BACKEND` is unset, `true` maps to `db` and `false` maps to `file`. |
+| `WAF_DB_DSN` | (empty) | DSN for network DB drivers (for example MySQL). Required when `WAF_DB_DRIVER=mysql`; sqlite uses `WAF_DB_PATH`. |
+| `WAF_DB_PATH` | `logs/coraza/mamotama.db` | SQLite file path used when `WAF_STORAGE_BACKEND=db` and `WAF_DB_DRIVER=sqlite`. |
+| `WAF_DB_RETENTION_DAYS` | `30` | Retention window for `waf_events` in DB store. Entries older than this are pruned on sync. `0` disables pruning (config blobs are not pruned). |
+| `WAF_DB_SYNC_INTERVAL_SEC` | `0` | Periodic DB→runtime sync interval in seconds. `0` disables background polling; `>=1` enables periodic reconciliation across multiple Coraza nodes. |
 | `WAF_STRICT_OVERRIDE` | `false` | Behavior when a special-rule file fails to load. `true`: fail fast. `false`: warn and continue. |
 | `WAF_API_BASEPATH` | `/mamotama-api` | Base path for admin API routing on Go server. |
 | `WAF_API_KEY_PRIMARY` | `...` | Primary admin API key (`X-API-Key`). |
@@ -109,7 +124,7 @@ For local testing only, you can temporarily relax this with `WAF_ALLOW_INSECURE_
 | --- | --- |
 | `/status` | WAF runtime status and configuration overview |
 | `/logs` | Fetch and view WAF logs |
-| `/rules` | View/edit active base rule files |
+| `/rules` | View/edit active base rule files (`rules/mamotama.conf` etc.) |
 | `/rule-sets` | Enable/disable CRS core rule files (`rules/crs/rules/*.conf`) |
 | `/bypass` | View/edit bypass config directly (`waf.bypass`) |
 | `/country-block` | View/edit country block config directly (`country-block.conf`) |
@@ -165,6 +180,20 @@ docker compose up -d coraza nginx
 ```
 
 You can change the root path by setting `VITE_APP_BASE_PATH` and `VITE_CORAZA_API_BASE` in `.env`.
+
+#### Optional: Local MySQL Container (profile: `mysql`)
+
+For future DB-driver validation, you can start a local MySQL container:
+
+```bash
+docker compose --profile mysql up -d mysql
+```
+
+When using MySQL for DB-backed logs/configs, set `WAF_STORAGE_BACKEND=db`, `WAF_DB_DRIVER=mysql`, and `WAF_DB_DSN` (for example `mamotama:mamotama@tcp(mysql:3306)/mamotama?charset=utf8mb4&parseTime=true`).
+
+For multi-node operation, set `WAF_DB_SYNC_INTERVAL_SEC` (for example `10`) so each node periodically reconciles runtime files from `config_blobs` and applies reload only when content actually changes.
+
+Scale-out note: for multiple Coraza nodes, use a shared MySQL backend (`db + mysql`) as the standard setup. `file` and `db + sqlite` are intended for single-node or local validation use.
 
 ### WAF Regression Test (GoTestWAF)
 
@@ -563,11 +592,13 @@ GitHub Actions workflow `ci` validates:
 
 - `go test ./...` (`coraza/src`)
 - `docker compose config` sanity check
+- MySQL log-store integration test (`go test ./internal/handler -run TestLogsStatsMySQLStoreAggregatesAndIngestsIncrementally`, with `docker compose --profile mysql up -d mysql`)
 - `./scripts/run_gotestwaf.sh` (`waf-test` matrix, `MIN_BLOCKED_RATIO=70`, `WAF_DB_ENABLED=false/true`)
 
 In production workflows, set these as required branch protection checks:
 
 - `ci / go-test`
+- `ci / mysql-logstore-test`
 - `ci / compose-validate`
 - `ci / waf-test (file)`
 - `ci / waf-test (sqlite)`
@@ -586,6 +617,15 @@ See:
 SQLite operation notes:
 
 - `docs/operations/db-ops.md`
+
+---
+
+## What Is mamotama?
+
+**mamotama** is inspired by the Japanese phrase **「護りたまえ」 (mamoritamae)**,
+which means *"please protect"* or *"grant protection"*.
+
+The name reflects the project's purpose: protecting web applications and infrastructure.
 
 ---
 

@@ -3,6 +3,9 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -92,5 +95,131 @@ func TestEvaluateBotDefense_ChallengeThenPass(t *testing.T) {
 	d2 := EvaluateBotDefense(req2, "10.0.0.1", now.Add(1*time.Second))
 	if !d2.Allowed {
 		t.Fatalf("request with valid challenge cookie should pass: %+v", d2)
+	}
+}
+
+func TestSyncBotDefenseStorage_SeedsDBFromFileWhenMissingBlob(t *testing.T) {
+	restore := saveBotDefenseStateForTest()
+	defer restore()
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "bot-defense.conf")
+	raw := `{
+  "enabled": true,
+  "mode": "suspicious",
+  "path_prefixes": ["/"],
+  "suspicious_user_agents": ["curl"],
+  "challenge_cookie_name": "__bot_ok",
+  "challenge_secret": "test-secret-12345",
+  "challenge_ttl_seconds": 1800,
+  "challenge_status_code": 429
+}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write bot-defense file: %v", err)
+	}
+	if err := InitBotDefense(path); err != nil {
+		t.Fatalf("init bot-defense: %v", err)
+	}
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStoreWithBackend("db", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	if err := SyncBotDefenseStorage(); err != nil {
+		t.Fatalf("sync bot-defense storage: %v", err)
+	}
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected sqlite store")
+	}
+	gotRaw, _, found, err := store.GetConfigBlob(botDefenseConfigBlobKey)
+	if err != nil {
+		t.Fatalf("get config blob: %v", err)
+	}
+	if !found {
+		t.Fatal("expected bot-defense config blob to be seeded")
+	}
+	if strings.TrimSpace(string(gotRaw)) != strings.TrimSpace(raw) {
+		t.Fatalf("seeded blob mismatch:\n got=%s\nwant=%s", string(gotRaw), raw)
+	}
+}
+
+func TestSyncBotDefenseStorage_RestoresFileAndRuntimeFromDB(t *testing.T) {
+	restore := saveBotDefenseStateForTest()
+	defer restore()
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "bot-defense.conf")
+	fileRaw := `{
+  "enabled": false,
+  "mode": "suspicious",
+  "path_prefixes": ["/"]
+}`
+	if err := os.WriteFile(path, []byte(fileRaw), 0o644); err != nil {
+		t.Fatalf("write bot-defense file: %v", err)
+	}
+	if err := InitBotDefense(path); err != nil {
+		t.Fatalf("init bot-defense: %v", err)
+	}
+
+	dbPath := filepath.Join(tmp, "mamotama.db")
+	if err := InitLogsStatsStoreWithBackend("db", "sqlite", dbPath, "", 30); err != nil {
+		t.Fatalf("init sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected sqlite store")
+	}
+	dbRaw := `{
+  "enabled": true,
+  "mode": "always",
+  "path_prefixes": ["/api"],
+  "challenge_cookie_name": "__bot_ok",
+  "challenge_secret": "test-secret-12345",
+  "challenge_ttl_seconds": 1800,
+  "challenge_status_code": 429
+}`
+	if err := store.UpsertConfigBlob(botDefenseConfigBlobKey, []byte(dbRaw), "", time.Now().UTC()); err != nil {
+		t.Fatalf("upsert config blob: %v", err)
+	}
+
+	if err := SyncBotDefenseStorage(); err != nil {
+		t.Fatalf("sync bot-defense storage: %v", err)
+	}
+
+	gotFileRaw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bot-defense file: %v", err)
+	}
+	if strings.TrimSpace(string(gotFileRaw)) != strings.TrimSpace(dbRaw) {
+		t.Fatalf("file should be restored from db blob:\n got=%s\nwant=%s", string(gotFileRaw), dbRaw)
+	}
+
+	cfg := GetBotDefenseConfig()
+	if !cfg.Enabled || cfg.Mode != "always" {
+		t.Fatalf("runtime config mismatch: enabled=%v mode=%q", cfg.Enabled, cfg.Mode)
+	}
+}
+
+func saveBotDefenseStateForTest() func() {
+	botDefenseMu.RLock()
+	oldPath := botDefensePath
+	oldRuntime := botDefenseRuntime
+	botDefenseMu.RUnlock()
+
+	return func() {
+		botDefenseMu.Lock()
+		botDefensePath = oldPath
+		botDefenseRuntime = oldRuntime
+		botDefenseMu.Unlock()
 	}
 }
