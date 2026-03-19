@@ -182,43 +182,13 @@ func PutSemanticRules(c *gin.Context) {
 }
 
 func SyncSemanticStorage() error {
-	store := getLogsStatsStore()
-	if store == nil {
-		return nil
-	}
-
-	path := GetSemanticPath()
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-
-	fileRaw, _ := os.ReadFile(path)
-	dbRaw, dbETag, found, err := store.GetConfigBlob(semanticConfigBlobKey)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		if _, err := ValidateSemanticRaw(string(dbRaw)); err != nil {
+	return syncConfigBlobFilePath(configBlobSyncOptions{
+		ConfigKey: semanticConfigBlobKey,
+		Path:      GetSemanticPath(),
+		ValidateRaw: func(raw string) error {
+			_, err := ValidateSemanticRaw(raw)
 			return err
-		}
-		if err := bypassconf.AtomicWriteWithBackup(path, dbRaw); err != nil {
-			return err
-		}
-		if err := ReloadSemantic(); err != nil {
-			return err
-		}
-		if strings.TrimSpace(dbETag) == "" {
-			dbETag = bypassconf.ComputeETag(dbRaw)
-			if err := store.UpsertConfigBlob(semanticConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	if len(fileRaw) == 0 {
-		return nil
-	}
-	return store.UpsertConfigBlob(semanticConfigBlobKey, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC())
+		},
+		Reload: ReloadSemantic,
+	})
 }

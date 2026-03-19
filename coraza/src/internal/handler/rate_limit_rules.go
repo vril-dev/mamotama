@@ -161,43 +161,13 @@ func PutRateLimitRules(c *gin.Context) {
 }
 
 func SyncRateLimitStorage() error {
-	store := getLogsStatsStore()
-	if store == nil {
-		return nil
-	}
-
-	path := GetRateLimitPath()
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-
-	fileRaw, _ := os.ReadFile(path)
-	dbRaw, dbETag, found, err := store.GetConfigBlob(rateLimitConfigBlobKey)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		if _, err := ValidateRateLimitRaw(string(dbRaw)); err != nil {
+	return syncConfigBlobFilePath(configBlobSyncOptions{
+		ConfigKey: rateLimitConfigBlobKey,
+		Path:      GetRateLimitPath(),
+		ValidateRaw: func(raw string) error {
+			_, err := ValidateRateLimitRaw(raw)
 			return err
-		}
-		if err := bypassconf.AtomicWriteWithBackup(path, dbRaw); err != nil {
-			return err
-		}
-		if err := ReloadRateLimit(); err != nil {
-			return err
-		}
-		if strings.TrimSpace(dbETag) == "" {
-			dbETag = bypassconf.ComputeETag(dbRaw)
-			if err := store.UpsertConfigBlob(rateLimitConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	if len(fileRaw) == 0 {
-		return nil
-	}
-	return store.UpsertConfigBlob(rateLimitConfigBlobKey, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC())
+		},
+		Reload: ReloadRateLimit,
+	})
 }

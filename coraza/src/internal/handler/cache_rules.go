@@ -170,37 +170,16 @@ func PutCacheRules(c *gin.Context) {
 }
 
 func SyncCacheRulesStorage() error {
-	store := getLogsStatsStore()
-	if store == nil {
-		return nil
-	}
-
-	raw, _ := os.ReadFile(cacheConfPath)
-	dbRaw, dbETag, found, err := store.GetConfigBlob(cacheConfigBlobKey)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		if _, parseErr := cacheconf.LoadFromBytes(dbRaw); parseErr != nil {
-			return parseErr
-		}
-		if strings.TrimSpace(dbETag) == "" {
-			dbETag = cacheconf.ComputeETag(dbRaw)
-		}
-		if !bytes.Equal(raw, dbRaw) {
-			if err := cacheconf.AtomicWriteWithBackup(cacheConfPath, dbRaw); err != nil {
-				return err
-			}
-		}
-		if err := store.UpsertConfigBlob(cacheConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
+	return syncConfigBlobFilePath(configBlobSyncOptions{
+		ConfigKey: cacheConfigBlobKey,
+		Path:      cacheConfPath,
+		ValidateRaw: func(raw string) error {
+			_, err := cacheconf.LoadFromBytes([]byte(raw))
 			return err
-		}
-		return nil
-	}
-
-	if len(raw) == 0 {
-		return nil
-	}
-	return store.UpsertConfigBlob(cacheConfigBlobKey, raw, cacheconf.ComputeETag(raw), time.Now().UTC())
+		},
+		WriteRaw:           cacheconf.AtomicWriteWithBackup,
+		ComputeETag:        cacheconf.ComputeETag,
+		ForceUpsertOnFound: true,
+		SkipWriteIfEqual:   true,
+	})
 }

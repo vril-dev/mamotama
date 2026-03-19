@@ -145,45 +145,15 @@ func PutBypassRules(c *gin.Context) {
 }
 
 func SyncBypassStorage() error {
-	store := getLogsStatsStore()
-	if store == nil {
-		return nil
-	}
-
-	path := strings.TrimSpace(config.BypassFile)
-	if path == "" {
-		return nil
-	}
-
-	fileRaw, _ := os.ReadFile(path)
-	dbRaw, dbETag, found, err := store.GetConfigBlob(bypassConfigBlobKey)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		if _, err := validateRaw(string(dbRaw)); err != nil {
+	return syncConfigBlobFilePath(configBlobSyncOptions{
+		ConfigKey: bypassConfigBlobKey,
+		Path:      config.BypassFile,
+		ValidateRaw: func(raw string) error {
+			_, err := validateRaw(raw)
 			return err
-		}
-		if err := bypassconf.AtomicWriteWithBackup(path, dbRaw); err != nil {
-			return err
-		}
-		if err := bypassconf.Reload(); err != nil {
-			return err
-		}
-		if strings.TrimSpace(dbETag) == "" {
-			dbETag = bypassconf.ComputeETag(dbRaw)
-			if err := store.UpsertConfigBlob(bypassConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	if len(fileRaw) == 0 {
-		return nil
-	}
-	return store.UpsertConfigBlob(bypassConfigBlobKey, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC())
+		},
+		Reload: bypassconf.Reload,
+	})
 }
 
 func validateRaw(s string) (int, error) {

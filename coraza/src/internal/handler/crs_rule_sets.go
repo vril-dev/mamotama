@@ -220,45 +220,22 @@ func PutCRSRuleSets(c *gin.Context) {
 }
 
 func SyncCRSDisabledStorage() error {
-	store := getLogsStatsStore()
-	if store == nil {
-		return nil
-	}
-
-	fileRaw, _, err := readFileMaybe(config.CRSDisabledFile)
-	if err != nil {
-		return err
-	}
-	dbRaw, dbETag, found, err := store.GetConfigBlob(crsDisabledConfigBlobKey)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		if err := os.MkdirAll(filepath.Dir(config.CRSDisabledFile), 0o755); err != nil {
-			return err
-		}
-		if err := bypassconf.AtomicWriteWithBackup(config.CRSDisabledFile, dbRaw); err != nil {
-			return err
-		}
-		if config.CRSEnable {
-			if err := waf.ReloadBaseWAF(); err != nil {
+	return syncConfigBlobFilePath(configBlobSyncOptions{
+		ConfigKey: crsDisabledConfigBlobKey,
+		Path:      config.CRSDisabledFile,
+		WriteRaw: func(path string, raw []byte) error {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return err
 			}
-		}
-		if strings.TrimSpace(dbETag) == "" {
-			dbETag = bypassconf.ComputeETag(dbRaw)
-			if err := store.UpsertConfigBlob(crsDisabledConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
-				return err
+			return bypassconf.AtomicWriteWithBackup(path, raw)
+		},
+		Reload: func() error {
+			if !config.CRSEnable {
+				return nil
 			}
-		}
-		return nil
-	}
-
-	if len(fileRaw) == 0 {
-		return nil
-	}
-	return store.UpsertConfigBlob(crsDisabledConfigBlobKey, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC())
+			return waf.ReloadBaseWAF()
+		},
+	})
 }
 
 func readFileMaybe(path string) ([]byte, bool, error) {

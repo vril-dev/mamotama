@@ -163,43 +163,13 @@ func PutBotDefenseRules(c *gin.Context) {
 }
 
 func SyncBotDefenseStorage() error {
-	store := getLogsStatsStore()
-	if store == nil {
-		return nil
-	}
-
-	path := GetBotDefensePath()
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-
-	fileRaw, _ := os.ReadFile(path)
-	dbRaw, dbETag, found, err := store.GetConfigBlob(botDefenseConfigBlobKey)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		if _, err := ValidateBotDefenseRaw(string(dbRaw)); err != nil {
+	return syncConfigBlobFilePath(configBlobSyncOptions{
+		ConfigKey: botDefenseConfigBlobKey,
+		Path:      GetBotDefensePath(),
+		ValidateRaw: func(raw string) error {
+			_, err := ValidateBotDefenseRaw(raw)
 			return err
-		}
-		if err := bypassconf.AtomicWriteWithBackup(path, dbRaw); err != nil {
-			return err
-		}
-		if err := ReloadBotDefense(); err != nil {
-			return err
-		}
-		if strings.TrimSpace(dbETag) == "" {
-			dbETag = bypassconf.ComputeETag(dbRaw)
-			if err := store.UpsertConfigBlob(botDefenseConfigBlobKey, dbRaw, dbETag, time.Now().UTC()); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	if len(fileRaw) == 0 {
-		return nil
-	}
-	return store.UpsertConfigBlob(botDefenseConfigBlobKey, fileRaw, bypassconf.ComputeETag(fileRaw), time.Now().UTC())
+		},
+		Reload: ReloadBotDefense,
+	})
 }
