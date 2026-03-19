@@ -463,12 +463,12 @@ func TestInitLogsStatsStoreWithBackend_FileDisablesStore(t *testing.T) {
 	}
 }
 
-func TestInitLogsStatsStoreWithBackend_MySQLReserved(t *testing.T) {
-	err := InitLogsStatsStoreWithBackend("db", "mysql", "", "user:pass@tcp(localhost:3306)/mamotama", 30)
+func TestInitLogsStatsStoreWithBackend_MySQLRequiresDSN(t *testing.T) {
+	err := InitLogsStatsStoreWithBackend("db", "mysql", "", "", 30)
 	if err == nil {
-		t.Fatal("expected error for mysql reserved driver")
+		t.Fatal("expected error for missing mysql dsn")
 	}
-	if !strings.Contains(err.Error(), "not implemented") {
+	if !strings.Contains(err.Error(), "requires WAF_DB_DSN") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -480,6 +480,104 @@ func TestInitLogsStatsStoreWithBackend_InvalidBackend(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported storage backend") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWAFEventStoreSQLDialectStatements(t *testing.T) {
+	sqliteStore := &wafEventStore{dbDriver: logStatsDBDriverSQLite}
+	if !strings.Contains(sqliteStore.insertWAFEventStmt(), "INSERT OR IGNORE") {
+		t.Fatalf("sqlite insert stmt mismatch: %s", sqliteStore.insertWAFEventStmt())
+	}
+	if !strings.Contains(sqliteStore.upsertIngestStateStmt(), "ON CONFLICT") {
+		t.Fatalf("sqlite upsert stmt mismatch: %s", sqliteStore.upsertIngestStateStmt())
+	}
+
+	mysqlStore := &wafEventStore{dbDriver: logStatsDBDriverMySQL}
+	if !strings.Contains(mysqlStore.insertWAFEventStmt(), "INSERT IGNORE") {
+		t.Fatalf("mysql insert stmt mismatch: %s", mysqlStore.insertWAFEventStmt())
+	}
+	if !strings.Contains(mysqlStore.upsertIngestStateStmt(), "ON DUPLICATE KEY UPDATE") {
+		t.Fatalf("mysql upsert stmt mismatch: %s", mysqlStore.upsertIngestStateStmt())
+	}
+}
+
+func TestLogsStatsMySQLStoreAggregatesAndIngestsIncrementally(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("WAF_TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("WAF_TEST_MYSQL_DSN is not set")
+	}
+
+	now := time.Now().UTC()
+	entries := []map[string]any{
+		{
+			"ts":      now.Add(-8 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"rule_id": 942100,
+			"path":    "/mysql-login",
+			"country": "JP",
+			"status":  403,
+			"req_id":  "mysql-req-1",
+		},
+		{
+			"ts":      now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			"event":   "waf_block",
+			"rule_id": 920350,
+			"path":    "/mysql-admin",
+			"country": "US",
+			"status":  403,
+			"req_id":  "mysql-req-2",
+		},
+	}
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "waf-events.ndjson")
+	writeNDJSONFile(t, logPath, entries)
+
+	restoreLogPath := setWAFLogPathForTest(t, logPath)
+	defer restoreLogPath()
+
+	if err := InitLogsStatsStoreWithBackend("db", "mysql", "", dsn, 30); err != nil {
+		t.Fatalf("init mysql store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = InitLogsStatsStoreWithBackend("file", "", "", "", 0)
+	})
+
+	store := getLogsStatsStore()
+	if store == nil {
+		t.Fatal("expected mysql store")
+	}
+	if _, err := store.db.Exec(`TRUNCATE TABLE waf_events`); err != nil {
+		t.Fatalf("truncate waf_events: %v", err)
+	}
+	if _, err := store.db.Exec(`DELETE FROM ingest_state WHERE source = ?`, logStatsStoreSourceWAF); err != nil {
+		t.Fatalf("reset ingest_state: %v", err)
+	}
+
+	first := callLogsStats(t, "/mamotama-api/logs/stats?hours=6")
+	if first.WAFBlock.TotalInScan != 2 {
+		t.Fatalf("first total_in_scan=%d want=2", first.WAFBlock.TotalInScan)
+	}
+	if first.ScannedLines != len(entries) {
+		t.Fatalf("first scanned_lines=%d want=%d", first.ScannedLines, len(entries))
+	}
+
+	appendNDJSONLine(t, logPath, map[string]any{
+		"ts":      now.Add(-1 * time.Minute).Format(time.RFC3339Nano),
+		"event":   "waf_block",
+		"rule_id": 949110,
+		"path":    "/mysql-api",
+		"country": "JP",
+		"status":  403,
+		"req_id":  "mysql-req-3",
+	})
+
+	second := callLogsStats(t, "/mamotama-api/logs/stats?hours=6")
+	if second.WAFBlock.TotalInScan != 3 {
+		t.Fatalf("second total_in_scan=%d want=3", second.WAFBlock.TotalInScan)
+	}
+	if second.ScannedLines != 1 {
+		t.Fatalf("second scanned_lines=%d want=1", second.ScannedLines)
 	}
 }
 

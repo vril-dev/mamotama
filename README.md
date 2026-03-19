@@ -85,9 +85,9 @@ You can control behavior via `.env`.
 | `WAF_FP_TUNER_APPROVAL_TTL_SEC` | `600` | Approval token TTL in seconds. |
 | `WAF_FP_TUNER_AUDIT_FILE` | `logs/coraza/fp-tuner-audit.ndjson` | Audit log destination for propose/apply actions. |
 | `WAF_STORAGE_BACKEND` | `file` | Storage backend selector. `file` disables DB log store; `db` enables DB-backed log store. |
-| `WAF_DB_DRIVER` | `sqlite` | DB driver when `WAF_STORAGE_BACKEND=db`. Supported: `sqlite` (implemented), `mysql` (reserved for upcoming implementation). |
+| `WAF_DB_DRIVER` | `sqlite` | DB driver when `WAF_STORAGE_BACKEND=db`. Supported: `sqlite`, `mysql` (both implemented for log store). |
 | `WAF_DB_ENABLED` | `false` | Legacy compatibility flag. If `WAF_STORAGE_BACKEND` is unset, `true` maps to `db` and `false` maps to `file`. |
-| `WAF_DB_DSN` | (empty) | DSN for network DB drivers (for example MySQL). Currently reserved; sqlite uses `WAF_DB_PATH`. |
+| `WAF_DB_DSN` | (empty) | DSN for network DB drivers (for example MySQL). Required when `WAF_DB_DRIVER=mysql`; sqlite uses `WAF_DB_PATH`. |
 | `WAF_DB_PATH` | `logs/coraza/mamotama.db` | SQLite file path used when `WAF_STORAGE_BACKEND=db` and `WAF_DB_DRIVER=sqlite`. |
 | `WAF_DB_RETENTION_DAYS` | `30` | Retention window for `waf_events` in DB store. Entries older than this are pruned on sync. `0` disables pruning. |
 | `WAF_STRICT_OVERRIDE` | `false` | Behavior when a special-rule file fails to load. `true`: fail fast. `false`: warn and continue. |
@@ -188,7 +188,7 @@ For future DB-driver validation, you can start a local MySQL container:
 docker compose --profile mysql up -d mysql
 ```
 
-Current note (as of March 19, 2026): `WAF_DB_DRIVER=mysql` is not implemented in Go runtime yet, so this container is for environment preparation only.
+When using MySQL for the log store, set `WAF_STORAGE_BACKEND=db`, `WAF_DB_DRIVER=mysql`, and `WAF_DB_DSN` (for example `mamotama:mamotama@tcp(mysql:3306)/mamotama?charset=utf8mb4&parseTime=true`).
 
 ### WAF Regression Test (GoTestWAF)
 
